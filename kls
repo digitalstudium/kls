@@ -58,12 +58,12 @@ def main(stdscr):
         match key_pressed:
             case 'q': 
                 running = False
-            case 'l': 
-                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources") and menus[1].rows[menus[1].row] == "pods":
+            case 'g': 
+                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
                     namespace = menus[0].rows[menus[0].row]
                     api_resource = menus[1].rows[menus[1].row]
                     resource = menus[2].rows[menus[2].row]
-                    process = subprocess.call(f"kubectl -n {namespace} logs {resource} | less", shell=True)
+                    process = subprocess.call(f"kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always", shell=True)
                     stdscr = curses.initscr()
                     stdscr.refresh()
                     curses.noecho()
@@ -76,7 +76,47 @@ def main(stdscr):
                         menu.win.addstr(1, 2, menu.name) 
                         for index, row in enumerate(menu.rows):
                             menu.win.addstr(index + 3, 2, row)
-                        menu.win.addstr(3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
+                        menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
+                    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+            case 'd': 
+                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
+                    namespace = menus[0].rows[menus[0].row]
+                    api_resource = menus[1].rows[menus[1].row]
+                    resource = menus[2].rows[menus[2].row]
+                    process = subprocess.call(f"kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always", shell=True)
+                    stdscr = curses.initscr()
+                    stdscr.refresh()
+                    curses.noecho()
+                    curses.cbreak()
+                    stdscr.keypad(True)
+                    curses.curs_set(0)
+                    for menu in menus:
+                        menu.win.clear()
+                        menu.win.box()
+                        menu.win.addstr(1, 2, menu.name) 
+                        for index, row in enumerate(menu.rows):
+                            menu.win.addstr(index + 3, 2, row)
+                        menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
+                    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+            case 'l': 
+                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources") and menus[1].rows[menus[1].row] == "pods":
+                    namespace = menus[0].rows[menus[0].row]
+                    api_resource = menus[1].rows[menus[1].row]
+                    resource = menus[2].rows[menus[2].row]
+                    process = subprocess.call(f"kubectl -n {namespace} logs {resource} | batcat -l log --paging always", shell=True)
+                    stdscr = curses.initscr()
+                    stdscr.refresh()
+                    curses.noecho()
+                    curses.cbreak()
+                    stdscr.keypad(True)
+                    curses.curs_set(0)
+                    for menu in menus:
+                        menu.win.clear()
+                        menu.win.box()
+                        menu.win.addstr(1, 2, menu.name) 
+                        for index, row in enumerate(menu.rows):
+                            menu.win.addstr(index + 3, 2, row)
+                        menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
                     menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
             case 'e': 
                 if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
@@ -96,7 +136,7 @@ def main(stdscr):
                         menu.win.addstr(1, 2, menu.name) 
                         for index, row in enumerate(menu.rows):
                             menu.win.addstr(index + 3, 2, row)
-                        menu.win.addstr(3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
+                        menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
                     menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
             case '\t' | "KEY_RIGHT":
                 menus[current_menu].win.addstr(1, 2, menus[current_menu].name) 
