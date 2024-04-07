@@ -63,7 +63,7 @@ def main(stdscr):
                     namespace = menus[0].rows[menus[0].row]
                     api_resource = menus[1].rows[menus[1].row]
                     resource = menus[2].rows[menus[2].row]
-                    process = subprocess.call(f"kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always", shell=True)
+                    process = subprocess.call(f"kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers", shell=True)
                     stdscr = curses.initscr()
                     stdscr.refresh()
                     curses.noecho()
@@ -83,7 +83,7 @@ def main(stdscr):
                     namespace = menus[0].rows[menus[0].row]
                     api_resource = menus[1].rows[menus[1].row]
                     resource = menus[2].rows[menus[2].row]
-                    process = subprocess.call(f"kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always", shell=True)
+                    process = subprocess.call(f"kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers", shell=True)
                     stdscr = curses.initscr()
                     stdscr.refresh()
                     curses.noecho()
@@ -103,7 +103,7 @@ def main(stdscr):
                     namespace = menus[0].rows[menus[0].row]
                     api_resource = menus[1].rows[menus[1].row]
                     resource = menus[2].rows[menus[2].row]
-                    process = subprocess.call(f"kubectl -n {namespace} logs {resource} | batcat -l log --paging always", shell=True)
+                    process = subprocess.call(f"kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers", shell=True)
                     stdscr = curses.initscr()
                     stdscr.refresh()
                     curses.noecho()
