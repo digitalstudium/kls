@@ -65,26 +65,22 @@ def run_command(command, current_menu, rows=None):
         menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
     menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
 
+
 def navigate_horizontally(direction, current_menu):
-    if direction == "right":
-        increment = 1
-    else:
-        increment = -1
+    increment = {"right": 1, "left": -1}
     menus[current_menu].win.addstr(1, 2, menus[current_menu].name) 
-    current_menu = (current_menu + increment) % 3
+    current_menu = (current_menu + increment[direction]) % 3
     menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
     return current_menu
 
+
 def navigate_vertically(direction, current_menu):
-    if direction == "up":
-        increment = -1
-    else:
-        increment = 1
+    increment = {"down": 1, "up": -1}
     if current_menu == 2 and menus[2].rows[menus[2].row].startswith("No resources"):
         return
     menu = menus[current_menu]
     menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row])  # удаляем выделение с текущей строки
-    menu.row = (menu.row + increment) % len(menu.rows) # переходим к предыдущей/следующей строке
+    menu.row = (menu.row + increment[direction]) % len(menu.rows) # переходим к предыдущей/следующей строке
     menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC) # и выделяем её
     if current_menu != 2: # если изменился выбор нэймспейса или апи ресурса
         namespace = menus[0].rows[menus[0].row]
