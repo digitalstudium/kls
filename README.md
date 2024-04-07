@@ -9,7 +9,9 @@
 
 ![kls in action](./images/kls.gif)
 ## Dependencies
-`batcat` and `kubectl`
+- `python3`
+- `kubectl`
+- `batcat`
 ## Installation
 Download latest `kls`:
 ```
