@@ -71,9 +71,9 @@ def run_command(command, current_menu, rows=None):
 
 def navigate_horizontally(direction, current_menu):
     increment = {"right": 1, "left": -1}
-    menus[current_menu].win.addstr(1, 2, menus[current_menu].name) 
-    current_menu = (current_menu + increment[direction]) % 3
-    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+    menus[current_menu].win.addstr(1, 2, menus[current_menu].name)  # удаляем выделение с текущего меню
+    current_menu = (current_menu + increment[direction]) % 3  # переходим к предыдущему/следующему меню
+    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC)  # и выделяем его
     return current_menu
 
 
