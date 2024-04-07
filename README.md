@@ -1,6 +1,13 @@
 # KLS
 ## Description
 Tool for managing kubernetes cluster resources. Inspired by `lf` and `ranger` file managers
+## Hotkeys
+- `l` - logs of pod
+- `g` - get yaml of resource
+- `d` - describe resource
+- `e` - edit resource
+
+![kls in action](./images/kls.gif)
 ## Dependencies
 `batcat` and `kubectl`
 ## Installation
