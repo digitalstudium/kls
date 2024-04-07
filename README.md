@@ -1,6 +1,6 @@
 # KLS
 ## Description
-Tool for managing kubernetes cluster resources. Inspired by `lf` and `ranger` file managers
+`kls` is a tool for managing kubernetes cluster resources. Inspired by `lf` and `ranger` file managers
 ## Hotkeys
 - `l` - logs of pod
 - `g` - get yaml of resource
