@@ -51,7 +51,10 @@ menu3 = Menu("Resources", pods, 0 + curses.COLS // 3 * 2)
 menus = [menu1, menu2, menu3]
 
 def run_command(command, current_menu, rows=None):
-    subprocess.call(command, shell=True)
+    namespace = menus[0].rows[menus[0].row]
+    api_resource = menus[1].rows[menus[1].row]
+    resource = menus[2].rows[menus[2].row]
+    subprocess.call(eval(command), shell=True)
     init_screen()
     for menu in menus:
         menu.win.clear()
@@ -85,8 +88,8 @@ def navigate_vertically(direction, current_menu):
     if current_menu != 2: # если изменился выбор нэймспейса или апи ресурса
         namespace = menus[0].rows[menus[0].row]
         api_resource = menus[1].rows[menus[1].row]
-        command = f"kubectl get {api_resource} -n {namespace} " + "--no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'"
-        bytes_list = subprocess.check_output(command, shell=True).split()
+        command = "f'kubectl get {api_resource} -n {namespace} --no-headers -o template=\"{{{{range .items}}}}{{{{.metadata.name}}}} {{{{end}}}}\"'"
+        bytes_list = subprocess.check_output(eval(command), shell=True).split()
         resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
         if not resources:
             resources = [f"No resources found in {namespace} namespace.",]
@@ -108,28 +111,16 @@ def main(stdscr):
                 running = False
             case 'g': 
                 if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
-                    namespace = menus[0].rows[menus[0].row]
-                    api_resource = menus[1].rows[menus[1].row]
-                    resource = menus[2].rows[menus[2].row]
-                    run_command(f"kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers", current_menu)
+                    run_command("f'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers'", current_menu)
             case 'd': 
                 if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
-                    namespace = menus[0].rows[menus[0].row]
-                    api_resource = menus[1].rows[menus[1].row]
-                    resource = menus[2].rows[menus[2].row]
-                    run_command(f"kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers", current_menu)
+                    run_command("f'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers'", current_menu)
             case 'l': 
                 if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources") and menus[1].rows[menus[1].row] == "pods":
-                    namespace = menus[0].rows[menus[0].row]
-                    api_resource = menus[1].rows[menus[1].row]
-                    resource = menus[2].rows[menus[2].row]
-                    run_command(f"kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers", current_menu)
+                    run_command("f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'", current_menu)
             case 'e': 
                 if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
-                    namespace = menus[0].rows[menus[0].row]
-                    api_resource = menus[1].rows[menus[1].row]
-                    resource = menus[2].rows[menus[2].row]
-                    run_command(f"kubectl edit {api_resource} -n {namespace} {resource}", current_menu)
+                    run_command("f'kubectl edit {api_resource} -n {namespace} {resource}'", current_menu)
             case '\t' | "KEY_RIGHT":
                 current_menu = navigate_horizontally("right", current_menu)
             case "KEY_BTAB" | "KEY_LEFT":
