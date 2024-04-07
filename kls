@@ -2,13 +2,18 @@
 import curses
 import subprocess
 
-stdscr = curses.initscr()
-stdscr.refresh()
-curses.noecho()
-curses.cbreak()
-stdscr.keypad(True)
-curses.curs_set(0)
+stdscr = None
 
+def init_screen():
+    global stdscr
+    stdscr = curses.initscr()
+    stdscr.refresh()
+    curses.noecho()
+    curses.cbreak()
+    stdscr.keypad(True)
+    curses.curs_set(0)
+
+init_screen()    
 
 class Menu:
     def __init__(self, name, rows, begin_x):
@@ -45,6 +50,53 @@ menu3 = Menu("Resources", pods, 0 + curses.COLS // 3 * 2)
 
 menus = [menu1, menu2, menu3]
 
+def run_command(command, current_menu, rows=None):
+    subprocess.call(command, shell=True)
+    init_screen()
+    for menu in menus:
+        menu.win.clear()
+        menu.win.box()
+        menu.win.addstr(1, 2, menu.name)
+        if rows and menu.name == "Resources":
+            menu.rows = rows
+            menu.row = 0
+        for index, row in enumerate(menu.rows):
+            menu.win.addstr(index + 3, 2, row)
+        menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
+    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+
+def navigate_horizontally(direction, current_menu):
+    if direction == "right":
+        increment = 1
+    else:
+        increment = -1
+    menus[current_menu].win.addstr(1, 2, menus[current_menu].name) 
+    current_menu = (current_menu + increment) % 3
+    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+    return current_menu
+
+def navigate_vertically(direction, current_menu):
+    if direction == "up":
+        increment = -1
+    else:
+        increment = 1
+    if current_menu == 2 and menus[2].rows[menus[2].row].startswith("No resources"):
+        return
+    menu = menus[current_menu]
+    menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row])  # удаляем выделение с текущей строки
+    menu.row = (menu.row + increment) % len(menu.rows) # переходим к предыдущей/следующей строке
+    menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC) # и выделяем её
+    if current_menu != 2: # если изменился выбор нэймспейса или апи ресурса
+        namespace = menus[0].rows[menus[0].row]
+        api_resource = menus[1].rows[menus[1].row]
+        command = f"kubectl get {api_resource} -n {namespace} " + "--no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'"
+        bytes_list = subprocess.check_output(command, shell=True).split()
+        resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
+        if not resources:
+            resources = [f"No resources found in {namespace} namespace.",]
+        run_command(command, current_menu, rows=resources)
+
+
 def main(stdscr):
     stdscr.refresh()
     running = True
@@ -63,143 +115,33 @@ def main(stdscr):
                     namespace = menus[0].rows[menus[0].row]
                     api_resource = menus[1].rows[menus[1].row]
                     resource = menus[2].rows[menus[2].row]
-                    process = subprocess.call(f"kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers", shell=True)
-                    stdscr = curses.initscr()
-                    stdscr.refresh()
-                    curses.noecho()
-                    curses.cbreak()
-                    stdscr.keypad(True)
-                    curses.curs_set(0)
-                    for menu in menus:
-                        menu.win.clear()
-                        menu.win.box()
-                        menu.win.addstr(1, 2, menu.name) 
-                        for index, row in enumerate(menu.rows):
-                            menu.win.addstr(index + 3, 2, row)
-                        menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
-                    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+                    run_command(f"kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers", current_menu)
             case 'd': 
                 if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
                     namespace = menus[0].rows[menus[0].row]
                     api_resource = menus[1].rows[menus[1].row]
                     resource = menus[2].rows[menus[2].row]
-                    process = subprocess.call(f"kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers", shell=True)
-                    stdscr = curses.initscr()
-                    stdscr.refresh()
-                    curses.noecho()
-                    curses.cbreak()
-                    stdscr.keypad(True)
-                    curses.curs_set(0)
-                    for menu in menus:
-                        menu.win.clear()
-                        menu.win.box()
-                        menu.win.addstr(1, 2, menu.name) 
-                        for index, row in enumerate(menu.rows):
-                            menu.win.addstr(index + 3, 2, row)
-                        menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
-                    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+                    run_command(f"kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers", current_menu)
             case 'l': 
                 if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources") and menus[1].rows[menus[1].row] == "pods":
                     namespace = menus[0].rows[menus[0].row]
                     api_resource = menus[1].rows[menus[1].row]
                     resource = menus[2].rows[menus[2].row]
-                    process = subprocess.call(f"kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers", shell=True)
-                    stdscr = curses.initscr()
-                    stdscr.refresh()
-                    curses.noecho()
-                    curses.cbreak()
-                    stdscr.keypad(True)
-                    curses.curs_set(0)
-                    for menu in menus:
-                        menu.win.clear()
-                        menu.win.box()
-                        menu.win.addstr(1, 2, menu.name) 
-                        for index, row in enumerate(menu.rows):
-                            menu.win.addstr(index + 3, 2, row)
-                        menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
-                    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+                    run_command(f"kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers", current_menu)
             case 'e': 
                 if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
                     namespace = menus[0].rows[menus[0].row]
                     api_resource = menus[1].rows[menus[1].row]
                     resource = menus[2].rows[menus[2].row]
-                    process = subprocess.call(f"kubectl edit {api_resource} -n {namespace} {resource}", shell=True)
-                    stdscr = curses.initscr()
-                    stdscr.refresh()
-                    curses.noecho()
-                    curses.cbreak()
-                    stdscr.keypad(True)
-                    curses.curs_set(0)
-                    for menu in menus:
-                        menu.win.clear()
-                        menu.win.box()
-                        menu.win.addstr(1, 2, menu.name) 
-                        for index, row in enumerate(menu.rows):
-                            menu.win.addstr(index + 3, 2, row)
-                        menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
-                    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+                    run_command(f"kubectl edit {api_resource} -n {namespace} {resource}", current_menu)
             case '\t' | "KEY_RIGHT":
-                menus[current_menu].win.addstr(1, 2, menus[current_menu].name) 
-                current_menu = (current_menu + 1) % 3
-                menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+                current_menu = navigate_horizontally("right", current_menu)
             case "KEY_BTAB" | "KEY_LEFT":
-                menus[current_menu].win.addstr(1, 2, menus[current_menu].name) 
-                current_menu = (current_menu - 1) % 3
-                menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+                current_menu = navigate_horizontally("left", current_menu)
             case "KEY_DOWN":
-                if current_menu == 2 and menus[2].rows[menus[2].row].startswith("No resources"):
-                    continue
-                menu = menus[current_menu]
-                menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row])  # удаляем выделение с текущей строки
-                menu.row = (menu.row + 1) % len(menu.rows) # переходим к следующей строке
-                menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC) # и выделяем её
-
-                if current_menu != 2: # если изменился выбор нэймспейса или апи ресурса
-                    namespace = menus[0].rows[menus[0].row]
-                    api_resource = menus[1].rows[menus[1].row]
-                    command = f"kubectl get {api_resource} -n {namespace} " + "--no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'"
-                    #raise ValueError(command)
-                    bytes_list = subprocess.check_output(command, shell=True).split()
-                    resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
-                    if not resources:
-                        resources = [f"No resources found in {namespace} namespace.",]
-                    menus[2].win.clear()
-                    menus[2].win.box()
-                    menus[2].win.addstr(1, 2, menus[2].name) 
-                    menus[2].rows = resources
-                    menus[2].row = 0
-                    for index, row in enumerate(menus[2].rows):
-                        if index == 0 and not resources[0].startswith("No resources"):
-                            menus[2].win.addstr(index + 3, 2, row, curses.A_REVERSE | curses.A_ITALIC)
-                        else:
-                            menus[2].win.addstr(index + 3, 2, row)
+                navigate_vertically("down", current_menu)
             case "KEY_UP":
-                if current_menu == 2 and menus[2].rows[menus[2].row].startswith("No resources"):
-                    continue
-                menu = menus[current_menu]
-                menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row])  # удаляем выделение с текущей строки
-                menu.row = (menu.row - 1) % len(menu.rows) # переходим к предыдущей строке
-                menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC) # и выделяем её
-
-                if current_menu != 2: # если изменился выбор нэймспейса или апи ресурса
-                    namespace = menus[0].rows[menus[0].row]
-                    api_resource = menus[1].rows[menus[1].row]
-                    command = f"kubectl get {api_resource} -n {namespace} " + "--no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'"
-                    #raise ValueError(command)
-                    bytes_list = subprocess.check_output(command, shell=True).split()
-                    resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
-                    if not resources:
-                        resources = [f"No resources found in {namespace} namespace.",]
-                    menus[2].win.clear()
-                    menus[2].win.box()
-                    menus[2].win.addstr(1, 2, menus[2].name) 
-                    menus[2].rows = resources
-                    menus[2].row = 0
-                    for index, row in enumerate(menus[2].rows):
-                        if index == 0 and not resources[0].startswith("No resources"):
-                            menus[2].win.addstr(index + 3, 2, row, curses.A_REVERSE | curses.A_ITALIC)
-                        else:
-                            menus[2].win.addstr(index + 3, 2, row)
+                navigate_vertically("up", current_menu)
 
 main(stdscr)
 
@@ -208,6 +150,4 @@ stdscr.keypad(False)
 curses.echo()
 curses.endwin()
 subprocess.call(["clear"])
-
-#curses.wrapper(main)
 
