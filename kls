@@ -87,7 +87,30 @@ def main(stdscr):
                         else:
                             menus[2].win.addstr(index + 3, 2, row)
             case "KEY_UP":
-                pass
+                menu = menus[current_menu]
+                menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row])  # удаляем выделение с текущей строки
+                menu.row = (menu.row - 1) % len(menu.rows) # переходим к предыдущей строке
+                menu.win.addstr(menu.row + 3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC) # и выделяем её
+
+                if current_menu != 2: # если изменился выбор нэймспейса или апи ресурса
+                    namespace = menus[0].rows[menus[0].row]
+                    api_resource = menus[1].rows[menus[1].row]
+                    command = f"kubectl get {api_resource} -n {namespace} " + "--no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'"
+                    #raise ValueError(command)
+                    bytes_list = subprocess.check_output(command, shell=True).split()
+                    resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
+                    if not resources:
+                        resources = [f"No resources found in {namespace} namespace.",]
+                    menus[2].win.clear()
+                    menus[2].win.box()
+                    menus[2].win.addstr(1, 2, menus[2].name) 
+                    menus[2].rows = resources
+                    menus[2].row = 0
+                    for index, row in enumerate(menus[2].rows):
+                        if index == 0 and not resources[0].startswith("No resources"):
+                            menus[2].win.addstr(index + 3, 2, row, curses.A_REVERSE | curses.A_ITALIC)
+                        else:
+                            menus[2].win.addstr(index + 3, 2, row)
 
 curses.wrapper(main)               
 
