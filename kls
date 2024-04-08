@@ -4,6 +4,10 @@ import subprocess
 
 stdscr = None
 
+def filter_words(words, start):
+    return list(filter(lambda s: s.startswith(start), words))
+
+# я не знаю, что делается в этой функции. 
 def init_screen():
     global stdscr
     stdscr = curses.initscr()
@@ -18,14 +22,14 @@ init_screen()
 class Menu:
     def __init__(self, name, rows, begin_x):
         self.name = name # заголовок окна
-        self.rows = rows
-        self.begin_x = begin_x
-        self.win = curses.newwin(curses.LINES, curses.COLS // 3, 0, begin_x)
-        self.win.box()
-        self.win.addstr(1, 2, self.name) 
-        for index, row in enumerate(self.rows):
-            self.win.addstr(index + 3, 2, row)
-        self.row = 0
+        self.rows = rows # строки окна
+        self.begin_x = begin_x  # где начинается окно по х?
+        self.win = curses.newwin(curses.LINES, curses.COLS // 3, 0, begin_x)  # окно с высотой во весь экран, шириной экран / 3, и началом по х в точке begin_x
+        self.win.box()  # ?
+        self.win.addstr(1, 2, self.name)  # рисуем заголовок
+        for index, row in enumerate(self.rows): # рисуем строки
+            self.win.addstr(index + 3, 2, row)  # + 3 потому что я хочу чтобы строки оборажались ниже заголовка на три строки
+        self.row = 0  # выбранная строка
 
 
 # рисуем первое меню
@@ -60,6 +64,8 @@ def run_command(command, current_menu, rows=None):
         menu.win.clear()
         menu.win.box()
         menu.win.addstr(1, 2, menu.name)
+        if menu.name == "Namespaces":
+            menu.win.addstr(curses.LINES - 2, 2, "Press / for search")
         if rows and menu.name == "Resources":
             menu.rows = rows
             menu.row = 0
@@ -97,18 +103,60 @@ def navigate_vertically(direction, current_menu):
 
 
 def main(stdscr):
+    search_mode = False
+    search_string = ""
     stdscr.refresh()
     running = True
     current_menu = 0
     menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
     for menu in menus:
         menu.win.addstr(3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
+        if menu.name == "Namespaces":
+            menu.win.addstr(curses.LINES - 2, 2, "Press / for search")
     while running:
         [menu.win.refresh() for menu in menus]  # refresh all menus
         key_pressed = stdscr.getkey()
+        
+        if current_menu == 0:
+            if key_pressed == "/":
+                search_mode = True
+            if search_mode:
+                if key_pressed == "KEY_BACKSPACE":
+                    if search_string:
+                        search_string = search_string[:-1]
+                    else:
+                        search_mode = False
+                elif key_pressed.isalpha() or key_pressed == "-":
+                    search_string += key_pressed
+                elif key_pressed == "/" and search_string == "":
+                    pass
+                else:
+                    continue
+                init_screen()
+                for menu in menus:
+                    menu.win.clear()  # очищаем окно
+                    menu.win.box()
+                    menu.win.addstr(1, 2, menu.name) # добавляем заголовок окна
+                    if menu.name == "Namespaces":
+                        menu.rows = list(filter(lambda x: (x.startswith(search_string)), namespaces))  # меняем строки у окна Namespaces
+                        menu.row = 0
+                        if search_mode:
+                            menu.win.addstr(curses.LINES - 2, 2, f"/{search_string}")
+                        else:
+                            menu.win.addstr(curses.LINES - 2, 2, "Press / for search")
+
+                    for index, row in enumerate(menu.rows):
+                        menu.win.addstr(index + 3, 2, row)
+                    if menu.rows:
+                        menu.win.addstr(3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC) # выделяем первую строку
+                menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) # помечаем выбранное меню
+                continue
+
         match key_pressed:
             case 'q': 
                 running = False
+            case '/': 
+                search_mode = True
             case 'g': 
                 if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
                     run_command("f'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers'", current_menu)
@@ -129,7 +177,6 @@ def main(stdscr):
                 navigate_vertically("down", current_menu)
             case "KEY_UP":
                 navigate_vertically("up", current_menu)
-
 main(stdscr)
 
 curses.nocbreak()
