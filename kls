@@ -144,6 +144,18 @@ def main(stdscr):
                             menu.win.addstr(curses.LINES - 2, 2, f"/{search_string}")
                         else:
                             menu.win.addstr(curses.LINES - 2, 2, "Press / for search")
+                    elif menu.name == "Resources":
+                        if menus[0].rows:
+                            namespace = menus[0].rows[menus[0].row]
+                            api_resource = menus[1].rows[menus[1].row]
+                            command = "f'kubectl get {api_resource} -n {namespace} --no-headers -o template=\"{{{{range .items}}}}{{{{.metadata.name}}}} {{{{end}}}}\"'"
+                            bytes_list = subprocess.check_output(eval(command), shell=True).split()
+                            resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
+                            if not resources:
+                                resources = [f"No resources found in {namespace} namespace.",]
+                        else:
+                            resources = ["No namespace selected",]
+                        menu.rows = resources
 
                     for index, row in enumerate(menu.rows):
                         menu.win.addstr(index + 3, 2, row)
