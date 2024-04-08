@@ -121,12 +121,21 @@ def main(stdscr):
             if key_pressed == "/":
                 search_mode = True
             if search_mode:
-                if key_pressed == "KEY_BACKSPACE":
-                    if search_string:
-                        search_string = search_string[:-1]
-                    else:
-                        search_mode = False
-                elif key_pressed.isalpha() or key_pressed == "-":
+                match key_pressed:
+                    case '\t' | "KEY_RIGHT":
+                        current_menu = navigate_horizontally("right", current_menu)
+                    case "KEY_BTAB" | "KEY_LEFT":
+                        current_menu = navigate_horizontally("left", current_menu)
+                    case "KEY_DOWN":
+                        navigate_vertically("down", current_menu)
+                    case "KEY_UP":
+                        navigate_vertically("up", current_menu)
+                    case "KEY_BACKSPACE":
+                        if search_string:
+                            search_string = search_string[:-1]
+                        else:
+                            search_mode = False
+                if key_pressed.isalpha() or key_pressed == "-":
                     search_string += key_pressed
                 elif key_pressed == "/" and search_string == "":
                     pass
