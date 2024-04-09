@@ -139,6 +139,7 @@ def main(stdscr):
         draw_search_box(menu, "Press / for search")  # рисуем строку поиска
     while running:
         match menu1.state:
+            # если первое меню выделено и в нём выключен поиск
             case MenuState.SELECTED_WITHOUT_SEARCH:
                 menu = menu1
                 menu.win.addstr(1, 2, menu.name, curses.A_REVERSE | curses.A_ITALIC)  # выделяем заголовок первого меню
@@ -146,7 +147,7 @@ def main(stdscr):
                 key_pressed = stdscr.getkey()
                 match key_pressed:
                     case "/":
-                        menu1.state = MenuState.SELECTED_WITH_SEARCH
+                        menu.state = MenuState.SELECTED_WITH_SEARCH
                         continue
                     case "q":
                         running = False
@@ -169,12 +170,14 @@ def main(stdscr):
                         match menu3.state:
                             case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
                                 menu = menu3
+                                menu.win.addstr(1, 2, menu.name)  # убираем выделение с заголовка третьего меню
                                 draw_search_box(menu, "Press / for search")  # рисуем строку поиска
                                 menu.win.refresh()
                             case MenuState.NOT_SELECTED_WITH_SEARCH:
                                 pass
                     case MenuState.NOT_SELECTED_WITH_SEARCH:
                         pass
+            # если первое меню выделено и в нём включен поиск
             case MenuState.SELECTED_WITH_SEARCH:
                 menu = menu1
                 menu.win.addstr(1, 2, menu.name, curses.A_REVERSE | curses.A_ITALIC)  # выделяем заголовок первого меню
@@ -207,31 +210,68 @@ def main(stdscr):
                                 pass
                     case MenuState.NOT_SELECTED_WITH_SEARCH:
                         pass
+            # если первое меню не выделено и в нём выключен поиск
             case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
                 menu = menu1
                 menu.win.addstr(1, 2, menu.name)  # убираем выделение с заголовка первого меню
                 draw_search_box(menu, "Press / for search")  # рисуем строку поиска
                 match menu2.state:
+                    # если второе меню не выделено и в нём выключен поиск
                     case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                        menu = menu2
+                        menu.win.addstr(1, 2, menu.name)  # удаляем выделение заголовка второго меню
+                        draw_search_box(menu, "Press / for search")  # рисуем строку поиска
                         match menu3.state:
-                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                            # если третье меню выделено и в нём выключен поиск
+                            case MenuState.SELECTED_WITHOUT_SEARCH:
+                                menu = menu3
+                                menu.win.addstr(1, 2, menu.name, curses.A_REVERSE | curses.A_ITALIC)  # выделяем заголовок второго меню
+                                draw_search_box(menu, "Press / for search")  # рисуем строку поиска
+                                key_pressed = stdscr.getkey()
+                                match key_pressed:
+                                    case "/":
+                                        menu.state = MenuState.SELECTED_WITH_SEARCH
+                                        continue
+                                    case "q":
+                                        running = False
+                                        continue
+                                    case '\t' | "KEY_RIGHT":
+                                        menu3.state = MenuState.NOT_SELECTED_WITHOUT_SEARCH
+                                        menu1.state = MenuState.SELECTED_WITHOUT_SEARCH
+                                        menu.win.addstr(1, 2, menu.name)  # убираем выделение с заголовка третьего меню
+                                        menu.win.refresh()
+                                        continue
+                            case MenuState.SELECTED_WITH_SEARCH:
                                 pass
-                            case MenuState.NOT_SELECTED_WITH_SEARCH:
-                                pass
+                    # если второе меню не выделено и в нём включен поиск
                     case MenuState.NOT_SELECTED_WITH_SEARCH:
                         pass
+                    # если второе меню выделено и в нём выключен поиск
                     case MenuState.SELECTED_WITHOUT_SEARCH:
                         menu = menu2
                         menu.win.addstr(1, 2, menu.name, curses.A_REVERSE | curses.A_ITALIC)  # выделяем заголовок второго меню
                         draw_search_box(menu, "Press / for search")  # рисуем строку поиска
                         key_pressed = stdscr.getkey()
+                        match key_pressed:
+                            case "/":
+                                menu.state = MenuState.SELECTED_WITH_SEARCH
+                                continue
+                            case "q":
+                                running = False
+                                continue
+                            case '\t' | "KEY_RIGHT":
+                                menu2.state = MenuState.NOT_SELECTED_WITHOUT_SEARCH
+                                menu3.state = MenuState.SELECTED_WITHOUT_SEARCH
+                                continue
                         match menu3.state:
                             case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
                                 pass
                             case MenuState.NOT_SELECTED_WITH_SEARCH:
                                 pass
+                    # если второе меню выделено и в нём включен поиск
                     case MenuState.SELECTED_WITH_SEARCH:
                         pass
+            # если первое меню не выделено и в нём включен поиск
             case MenuState.NOT_SELECTED_WITH_SEARCH:
                 match menu2.state:
                     case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
