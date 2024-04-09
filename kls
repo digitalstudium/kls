@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 import curses
 import subprocess
+from enum import Enum
 
 stdscr = None
 
-def filter_words(words, start):
-    return list(filter(lambda s: s.startswith(start), words))
+
+class MenuState(Enum):
+    SELECTED_WITHOUT_SEARCH = 1
+    SELECTED_WITH_SEARCH = 2
+    NOT_SELECTED_WITHOUT_SEARCH = 3
+    NOT_SELECTED_WITH_SEARCH = 4
+
 
 # я не знаю, что делается в этой функции. 
 def init_screen():
@@ -20,7 +26,8 @@ def init_screen():
 init_screen()    
 
 class Menu:
-    def __init__(self, name, rows, begin_x):
+    def __init__(self, name, rows, begin_x, state):
+        self.state = state
         self.name = name # заголовок окна
         self.rows = rows # строки окна
         self.begin_x = begin_x  # где начинается окно по х?
@@ -30,6 +37,7 @@ class Menu:
         for index, row in enumerate(self.rows): # рисуем строки
             self.win.addstr(index + 3, 2, row)  # + 3 потому что я хочу чтобы строки оборажались ниже заголовка на три строки
         self.row = 0  # выбранная строка
+        self.search_string = ""
 
 
 # рисуем первое меню
@@ -37,27 +45,27 @@ class Menu:
 bytes_list = subprocess.check_output("kubectl get ns --no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'", shell=True).split()
 namespaces = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
 ## отрисовываем меню
-menu1 = Menu("Namespaces", namespaces, 0)
+menu1 = Menu("Namespaces", namespaces, 0, MenuState.SELECTED_WITHOUT_SEARCH)
 
 # рисуем второе меню
 ## готовим контент
 api_resources = ["pods", "services", "deployments", "ingresses"]
 ## отрисовываем меню
-menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 3)
+menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 3, MenuState.NOT_SELECTED_WITHOUT_SEARCH)
 
 # рисуем третье меню
 ## готовим контент
 bytes_list = subprocess.check_output("kubectl get pods -n kube-system --no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'", shell=True).split()
 pods = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
 ## отрисовываем меню
-menu3 = Menu("Resources", pods, 0 + curses.COLS // 3 * 2)
+menu3 = Menu("Resources", pods, 0 + curses.COLS // 3 * 2, MenuState.NOT_SELECTED_WITHOUT_SEARCH)
 
 menus = [menu1, menu2, menu3]
 
 def run_command(command, current_menu, rows=None):
-    namespace = menus[0].rows[menus[0].row]
-    api_resource = menus[1].rows[menus[1].row]
-    resource = menus[2].rows[menus[2].row]
+    namespace = menu1.rows[menu1.row]
+    api_resource = menu2.rows[menu2.row]
+    resource = menu3.rows[menu3.row]
     subprocess.call(eval(command), shell=True)
     init_screen()
     for menu in menus:
@@ -102,102 +110,197 @@ def navigate_vertically(direction, current_menu):
         run_command(command, current_menu, rows=resources)
 
 
+def filter_menu1():
+    global menu1
+    menu1.win.clear()
+    menu1.win.addstr(curses.LINES - 2, 2, f"/{menu1.search_string}")  # рисуем её
+    menu1.win.clrtoeol()  # очищаем остальную часть строки
+    menu1.win.addstr(1, 2, menu1.name, curses.A_REVERSE | curses.A_ITALIC)  # рисуем заголовок
+    menu1.rows = list(filter(lambda x: (x.startswith(menu1.search_string)), namespaces))  # фильтруем нэймспейсы
+    for index, row in enumerate(menu1.rows): # рисуем то, что отфильтровали
+        menu1.win.addstr(index + 3, 2, row)
+    if menu1.rows:
+        menu1.win.addstr(3, 2, menu1.rows[menu1.row], curses.A_REVERSE | curses.A_ITALIC) # выделяем первую строку
+    menu1.win.box()
+    menu1.win.refresh()
+
+
 def main(stdscr):
-    search_mode = False
     search_string = ""
     stdscr.refresh()
     running = True
-    current_menu = 0
-    menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) 
+    menu1.win.addstr(1, 2, menu1.name, curses.A_REVERSE | curses.A_ITALIC) 
     for menu in menus:
         menu.win.addstr(3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)
-        if menu.name == "Namespaces":
-            menu.win.addstr(curses.LINES - 2, 2, "Press / for search")
+        menu.win.addstr(curses.LINES - 2, 2, "Press / for search")
+        menu.win.refresh()
     while running:
-        [menu.win.refresh() for menu in menus]  # refresh all menus
         key_pressed = stdscr.getkey()
-        
-        if current_menu == 0:
-            if key_pressed == "/":
-                search_mode = True
-            if search_mode:
+        match menu1.state:
+            case MenuState.SELECTED_WITHOUT_SEARCH:
                 match key_pressed:
-                    case '\t' | "KEY_RIGHT":
-                        current_menu = navigate_horizontally("right", current_menu)
-                    case "KEY_BTAB" | "KEY_LEFT":
-                        current_menu = navigate_horizontally("left", current_menu)
-                    case "KEY_DOWN":
-                        navigate_vertically("down", current_menu)
-                    case "KEY_UP":
-                        navigate_vertically("up", current_menu)
+                    case "/":
+                        menu1.win.addstr(curses.LINES - 2, 2, "/")  # рисуем слэш
+                        menu1.win.clrtoeol()  # очищаем остальную часть строки
+                        menu1.win.box() # рисуем рамку
+                        menu1.win.refresh()
+                        menu1.state = MenuState.SELECTED_WITH_SEARCH
+                        continue
+                    case "q":
+                        running = False
+                        continue
+                match menu2.state:
+                    case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                        match menu3.state:
+                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                                pass
+                            case MenuState.NOT_SELECTED_WITH_SEARCH:
+                                pass
+                    case MenuState.NOT_SELECTED_WITH_SEARCH:
+                        pass
+            case MenuState.SELECTED_WITH_SEARCH:
+                match key_pressed:
                     case "KEY_BACKSPACE":
-                        if search_string:
-                            search_string = search_string[:-1]
+                        if menu1.search_string:
+                            menu1.search_string = menu1.search_string[:-1]  # удаляем символ из строки поиска
+                            filter_menu1()
                         else:
-                            search_mode = False
-                if key_pressed.isalpha() or key_pressed == "-":
-                    search_string += key_pressed
-                elif key_pressed == "/" and search_string == "":
-                    pass
-                else:
-                    continue
-                init_screen()
-                for menu in menus:
-                    menu.win.clear()  # очищаем окно
-                    menu.win.box()
-                    menu.win.addstr(1, 2, menu.name) # добавляем заголовок окна
-                    if menu.name == "Namespaces":
-                        menu.rows = list(filter(lambda x: (x.startswith(search_string)), namespaces))  # меняем строки у окна Namespaces
-                        menu.row = 0
-                        if search_mode:
-                            menu.win.addstr(curses.LINES - 2, 2, f"/{search_string}")
-                        else:
-                            menu.win.addstr(curses.LINES - 2, 2, "Press / for search")
-                    elif menu.name == "Resources":
-                        if menus[0].rows:
-                            namespace = menus[0].rows[menus[0].row]
-                            api_resource = menus[1].rows[menus[1].row]
-                            command = "f'kubectl get {api_resource} -n {namespace} --no-headers -o template=\"{{{{range .items}}}}{{{{.metadata.name}}}} {{{{end}}}}\"'"
-                            bytes_list = subprocess.check_output(eval(command), shell=True).split()
-                            resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
-                            if not resources:
-                                resources = [f"No resources found in {namespace} namespace.",]
-                        else:
-                            resources = ["No namespace selected",]
-                        menu.rows = resources
-
-                    for index, row in enumerate(menu.rows):
-                        menu.win.addstr(index + 3, 2, row)
-                    if menu.rows:
-                        menu.win.addstr(3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC) # выделяем первую строку
-                menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) # помечаем выбранное меню
-                continue
-
-        match key_pressed:
-            case 'q': 
-                running = False
-            case '/': 
-                search_mode = True
-            case 'g': 
-                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
-                    run_command("f'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers'", current_menu)
-            case 'd': 
-                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
-                    run_command("f'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers'", current_menu)
-            case 'l': 
-                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources") and menus[1].rows[menus[1].row] == "pods":
-                    run_command("f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'", current_menu)
-            case 'e': 
-                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
-                    run_command("f'kubectl edit {api_resource} -n {namespace} {resource}'", current_menu)
-            case '\t' | "KEY_RIGHT":
-                current_menu = navigate_horizontally("right", current_menu)
-            case "KEY_BTAB" | "KEY_LEFT":
-                current_menu = navigate_horizontally("left", current_menu)
-            case "KEY_DOWN":
-                navigate_vertically("down", current_menu)
-            case "KEY_UP":
-                navigate_vertically("up", current_menu)
+                            menu1.win.addstr(curses.LINES - 2, 2, "Press / for search")
+                            menu1.win.box()
+                            menu1.win.refresh()
+                            menu1.state = MenuState.SELECTED_WITHOUT_SEARCH
+                            continue
+                    case _:
+                        if key_pressed.isalpha() or key_pressed == "-":  # namespace не может иметь иных символов кроме a-z и -
+                            menu1.search_string += key_pressed
+                            filter_menu1()
+                match menu2.state:
+                    case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                        match menu3.state:
+                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                                pass
+                            case MenuState.NOT_SELECTED_WITH_SEARCH:
+                                pass
+                    case MenuState.NOT_SELECTED_WITH_SEARCH:
+                        pass
+            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                match menu2.state:
+                    case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                        match menu3.state:
+                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                                pass
+                            case MenuState.NOT_SELECTED_WITH_SEARCH:
+                                pass
+                    case MenuState.NOT_SELECTED_WITH_SEARCH:
+                        pass
+                    case MenuState.SELECTED_WITHOUT_SEARCH:
+                        match menu3.state:
+                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                                pass
+                            case MenuState.NOT_SELECTED_WITH_SEARCH:
+                                pass
+                    case MenuState.SELECTED_WITH_SEARCH:
+                        pass
+            case MenuState.NOT_SELECTED_WITH_SEARCH:
+                match menu2.state:
+                    case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                        match menu3.state:
+                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                                pass
+                            case MenuState.NOT_SELECTED_WITH_SEARCH:
+                                pass
+                    case MenuState.NOT_SELECTED_WITH_SEARCH:
+                        pass
+                    case MenuState.SELECTED_WITHOUT_SEARCH:
+                        match menu3.state:
+                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
+                                pass
+                            case MenuState.NOT_SELECTED_WITH_SEARCH:
+                                pass
+                    case MenuState.SELECTED_WITH_SEARCH:
+                        pass
+        
+#        if current_menu == 0:
+#            if key_pressed == "/":
+#                search_mode = True
+#            if search_mode:
+#                match key_pressed:
+#                    case '\t' | "KEY_RIGHT":
+#                        current_menu = navigate_horizontally("right", current_menu)
+#                    case "KEY_BTAB" | "KEY_LEFT":
+#                        current_menu = navigate_horizontally("left", current_menu)
+#                    case "KEY_DOWN":
+#                        navigate_vertically("down", current_menu)
+#                    case "KEY_UP":
+#                        navigate_vertically("up", current_menu)
+#                    case "KEY_BACKSPACE":
+#                        if search_string:
+#                            search_string = search_string[:-1]
+#                        else:
+#                            search_mode = False
+#                if key_pressed.isalpha() or key_pressed == "-":
+#                    search_string += key_pressed
+#                elif key_pressed == "/" and search_string == "":
+#                    pass
+#                else:
+#                    continue
+#                init_screen()
+#                for menu in menus:
+#                    menu.win.clear()  # очищаем окно
+#                    menu.win.box()
+#                    menu.win.addstr(1, 2, menu.name) # добавляем заголовок окна
+#                    if menu.name == "Namespaces":
+#                        menu.rows = list(filter(lambda x: (x.startswith(search_string)), namespaces))  # меняем строки у окна Namespaces
+#                        menu.row = 0
+#                        if search_mode:
+#                            menu.win.addstr(curses.LINES - 2, 2, f"/{search_string}")
+#                        else:
+#                            menu.win.addstr(curses.LINES - 2, 2, "Press / for search")
+#                    elif menu.name == "Resources":
+#                        if menus[0].rows:
+#                            namespace = menus[0].rows[menus[0].row]
+#                            api_resource = menus[1].rows[menus[1].row]
+#                            command = "f'kubectl get {api_resource} -n {namespace} --no-headers -o template=\"{{{{range .items}}}}{{{{.metadata.name}}}} {{{{end}}}}\"'"
+#                            bytes_list = subprocess.check_output(eval(command), shell=True).split()
+#                            resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
+#                            if not resources:
+#                                resources = [f"No resources found in {namespace} namespace.",]
+#                        else:
+#                            resources = ["No namespace selected",]
+#                        menu.rows = resources
+#
+#                    for index, row in enumerate(menu.rows):
+#                        menu.win.addstr(index + 3, 2, row)
+#                    if menu.rows:
+#                        menu.win.addstr(3, 2, menu.rows[menu.row], curses.A_REVERSE | curses.A_ITALIC) # выделяем первую строку
+#                menus[current_menu].win.addstr(1, 2, menus[current_menu].name, curses.A_REVERSE | curses.A_ITALIC) # помечаем выбранное меню
+#                continue
+#
+#        match key_pressed:
+#            case 'q': 
+#                running = False
+#            case '/': 
+#                search_mode = True
+#            case 'g': 
+#                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
+#                    run_command("f'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers'", current_menu)
+#            case 'd': 
+#                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
+#                    run_command("f'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers'", current_menu)
+#            case 'l': 
+#                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources") and menus[1].rows[menus[1].row] == "pods":
+#                    run_command("f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'", current_menu)
+#            case 'e': 
+#                if current_menu == 2 and not menus[2].rows[menus[2].row].startswith("No resources"):
+#                    run_command("f'kubectl edit {api_resource} -n {namespace} {resource}'", current_menu)
+#            case '\t' | "KEY_RIGHT":
+#                current_menu = navigate_horizontally("right", current_menu)
+#            case "KEY_BTAB" | "KEY_LEFT":
+#                current_menu = navigate_horizontally("left", current_menu)
+#            case "KEY_DOWN":
+#                navigate_vertically("down", current_menu)
+#            case "KEY_UP":
+#                navigate_vertically("up", current_menu)
 main(stdscr)
 
 curses.nocbreak()
