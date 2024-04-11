@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 import curses
 import subprocess
-from enum import Enum
 
 stdscr = None
+running = True
 
-
-class MenuState(Enum):
-    SELECTED_WITHOUT_SEARCH = 1
-    SELECTED_WITH_SEARCH = 2
-    NOT_SELECTED_WITHOUT_SEARCH = 3
-    NOT_SELECTED_WITH_SEARCH = 4
+# states of menu
+SELECTED_WITHOUT_SEARCH = 1
+SELECTED_WITH_SEARCH = 2
+NOT_SELECTED_WITHOUT_SEARCH = 3
+NOT_SELECTED_WITH_SEARCH = 4
 
 
 # я не знаю, что делается в этой функции. 
@@ -23,48 +22,55 @@ def init_screen():
     stdscr.keypad(True)
     curses.curs_set(0)
 
-init_screen()    
+
+init_screen()
+
 
 class Menu:
     def __init__(self, name, rows, begin_x, state):
         self.state = state
-        self.name = name # заголовок окна
-        self.rows = rows # строки окна
-        self.filtered_rows = rows # фильтрованные строки окна
+        self.name = name  # заголовок окна
+        self.rows = rows  # строки окна
+        self.filtered_rows = rows  # фильтрованные строки окна
         self.begin_x = begin_x  # где начинается окно по х?
-        self.win = curses.newwin(curses.LINES, curses.COLS // 3, 0, begin_x)  # окно с высотой во весь экран, шириной экран / 3, и началом по х в точке begin_x
+        self.win = curses.newwin(curses.LINES, curses.COLS // 3, 0,
+                                 begin_x)  # окно с высотой во весь экран, шириной экран / 3, и началом по х в точке begin_x
         self.win.box()  # ?
         self.win.addstr(1, 2, self.name)  # рисуем заголовок
-        for index, row in enumerate(self.rows): # рисуем строки
-            self.win.addstr(index + 3, 2, row)  # + 3 потому что я хочу чтобы строки оборажались ниже заголовка на три строки
+        for index, row in enumerate(self.rows):  # рисуем строки
+            self.win.addstr(index + 3, 2,
+                            row)  # + 3 потому что я хочу чтобы строки оборажались ниже заголовка на три строки
         self.row = 0  # выбранная строка
         self.search_string = ""
 
 
 # рисуем первое меню
 ## готовим контент
-bytes_list = subprocess.check_output("kubectl get ns --no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'", shell=True).split()
+bytes_list = subprocess.check_output(
+    "kubectl get ns --no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'", shell=True).split()
 namespaces = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
 ## отрисовываем меню
-menu1 = Menu("Namespaces", namespaces, 0, MenuState.SELECTED_WITHOUT_SEARCH)
+menu1 = Menu("Namespaces", namespaces, 0, SELECTED_WITHOUT_SEARCH)
 
 # рисуем второе меню
 ## готовим контент
 api_resources = ["pods", "services", "deployments", "ingresses"]
 ## отрисовываем меню
-menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 3, MenuState.NOT_SELECTED_WITHOUT_SEARCH)
+menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 3, NOT_SELECTED_WITHOUT_SEARCH)
 
 # рисуем третье меню
 ## готовим контент
-bytes_list = subprocess.check_output("kubectl get pods -n kube-system --no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'", shell=True).split()
+bytes_list = subprocess.check_output(
+    "kubectl get pods -n kube-system --no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'",
+    shell=True).split()
 pods = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
 ## отрисовываем меню
-menu3 = Menu("Resources", pods, 0 + curses.COLS // 3 * 2, MenuState.NOT_SELECTED_WITHOUT_SEARCH)
+menu3 = Menu("Resources", pods, 0 + curses.COLS // 3 * 2, NOT_SELECTED_WITHOUT_SEARCH)
 
 menus = [menu1, menu2, menu3]
 
 
-#def run_command(command, menu, rows=None):
+# def run_command(command, menu, rows=None):
 #    namespace = menu1.rows[menu1.row]
 #    api_resource = menu2.rows[menu2.row]
 #    resource = menu3.rows[menu3.row]
@@ -84,7 +90,7 @@ menus = [menu1, menu2, menu3]
 #    menu.win.addstr(1, 2, menu.name, curses.A_REVERSE | curses.A_ITALIC) 
 
 
-#def navigate_horizontally(direction, current_menu):
+# def navigate_horizontally(direction, current_menu):
 #    increment = {"right": 1, "left": -1}
 #    menus[current_menu].win.addstr(1, 2, menus[current_menu].name)  # удаляем выделение с текущего меню
 #    current_menu = (current_menu + increment[direction]) % 3  # переходим к предыдущему/следующему меню
@@ -92,36 +98,25 @@ menus = [menu1, menu2, menu3]
 #    return current_menu
 
 
-def update_menu3(menu):
-    namespace = menu1.filtered_rows[menu1.row]
-    api_resource = menu2.filtered_rows[menu2.row]
-    command = "f'kubectl get {api_resource} -n {namespace} --no-headers -o template=\"{{{{range .items}}}}{{{{.metadata.name}}}} {{{{end}}}}\"'"
-    bytes_list = subprocess.check_output(eval(command), shell=True).split()
-    resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
-    if not resources:
-        resources = [f"No resources found in {namespace} namespace.",]
-    menu3.rows = resources
-    menu3.filtered_rows = resources
-    menu3.win.clear()
-    draw_rows(menu3)
+# def update_menu3(menu):
+#    namespace = menu1.filtered_rows[menu1.row]
+#    api_resource = menu2.filtered_rows[menu2.row]
+#    command = "f'kubectl get {api_resource} -n {namespace} --no-headers -o template=\"{{{{range .items}}}}{{{{.metadata.name}}}} {{{{end}}}}\"'"
+#    bytes_list = subprocess.check_output(eval(command), shell=True).split()
+#    resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
+#    if not resources:
+#        resources = [f"No resources found in {namespace} namespace.",]
+#    menu3.rows = resources
+#    menu3.filtered_rows = resources
+#    menu3.win.clear()
+#    draw_rows(menu3)
 #    run_command(command, menu, rows=resources)
-
-
-def navigate_vertically(direction, menu):
-    increment = {"down": 1, "up": -1}
-    if not menu.filtered_rows:
-        return
-    if menu.filtered_rows[menu.row].startswith("No resources"):  # это касается только третьего меню
-        return
-    menu.win.addstr(menu.row + 3, 2, menu.filtered_rows[menu.row]) # удаляем выделение с текущей строки
-    menu.row = (menu.row + increment[direction]) % len(menu.filtered_rows) # переходим к предыдущей/следующей строке
-    menu.win.addstr(menu.row + 3, 2, menu.filtered_rows[menu.row], curses.A_REVERSE | curses.A_ITALIC) # и выделяем её
 
 
 def draw_search_box(menu, content):
     menu.win.addstr(curses.LINES - 2, 2, content)  # рисуем контент
     menu.win.clrtoeol()  # очищаем остальную часть строки
-    menu.win.box() # рисуем рамку
+    menu.win.box()  # рисуем рамку
     menu.win.refresh()  # обновляем окно
 
 
@@ -135,192 +130,160 @@ def draw_header(menu, selected=False):
 
 def draw_rows(menu):
     menu.win.addstr(1, 2, menu.name)  # рисуем заголовок
-    menu.filtered_rows = list(filter(lambda x: (x.startswith(menu.search_string)), menu.rows))  # фильтруем строки
-    for index, row in enumerate(menu.filtered_rows): # рисуем то, что отфильтровали
+    filtered_rows = list(filter(lambda x: (x.startswith(menu.search_string)), menu.rows))  # фильтруем строки
+    for index, row in enumerate(filtered_rows):  # рисуем то, что отфильтровали
         menu.win.addstr(index + 3, 2, row)
-    if menu.filtered_rows:
-        menu.win.addstr(3, 2, menu.filtered_rows[0], curses.A_REVERSE | curses.A_ITALIC) # выделяем первую строку
+    if filtered_rows:
+        menu.win.addstr(3, 2, filtered_rows[0], curses.A_REVERSE | curses.A_ITALIC)  # выделяем первую строку
     menu.win.box()
     menu.win.refresh()
 
 
+def navigation_without_search(menu):
+    global running
+    draw_header(menu, selected=True)
+    draw_search_box(menu, "Press / for search")  # рисуем строку поиска
+    key_pressed = stdscr.getkey()
+    match key_pressed:
+        case "/":
+            menu.state = SELECTED_WITH_SEARCH
+        case "q":
+            running = False
+        case '\t' | "KEY_RIGHT":
+            navigate_horizontally("right", menu)
+        case "KEY_BTAB" | "KEY_LEFT":
+            navigate_horizontally("left", menu)
+        case "KEY_DOWN":
+            navigate_vertically("down", menu)
+            # update_menu3(menu)
+        case "KEY_UP":
+            navigate_vertically("up", menu)
+            # update_menu3(menu)
+
+
+def navigation_with_search(menu):
+    global running
+    draw_header(menu, selected=True)
+    draw_search_box(menu, f"/{menu.search_string}")  # рисуем строку поиска
+    key_pressed = stdscr.getkey()
+    match key_pressed:
+        case "KEY_BACKSPACE":
+            if menu.search_string:
+                menu.search_string = menu.search_string[:-1]  # удаляем символ из строки поиска
+                menu.win.clear()
+                draw_search_box(menu, f"/{menu.search_string}")
+                draw_rows(menu)
+            else:
+                menu.state = SELECTED_WITHOUT_SEARCH
+        case '\t' | "KEY_RIGHT":
+            navigate_horizontally("right", menu)
+        case "KEY_BTAB" | "KEY_LEFT":
+            navigate_horizontally("left", menu)
+        case "KEY_DOWN":
+            navigate_vertically("down", menu)
+            # update_menu3(menu)
+        case "KEY_UP":
+            navigate_vertically("up", menu)
+            # update_menu3(menu)
+        case _:
+            if key_pressed.isalpha() or key_pressed == "-":  # namespace не может иметь иных символов кроме a-z и -
+                menu.search_string += key_pressed
+                menu.win.clear()
+                menu.row = 0
+                draw_search_box(menu, f"/{menu.search_string}")
+                draw_rows(menu)
+
+
+def navigate_horizontally(direction, menu):
+    increment = {"right": 1, "left": -1}
+    menu_index = {menu1: 0, menu2: 1, menu3: 2}
+    next_menu = menus[(menu_index[menu] + increment[direction]) % 3]
+    draw_header(menu)  # убираем выделение с текущего меню
+    if menu.search_string:
+        menu.state = NOT_SELECTED_WITH_SEARCH
+    else:
+        menu.state = NOT_SELECTED_WITHOUT_SEARCH
+    if next_menu.search_string:
+        next_menu.state = SELECTED_WITH_SEARCH
+    else:
+        next_menu.state = SELECTED_WITHOUT_SEARCH
+
+
+def navigate_vertically(direction, menu):
+    increment = {"down": 1, "up": -1}
+    filtered_rows = list(filter(lambda x: (x.startswith(menu.search_string)), menu.rows))  # фильтруем строки
+    if not filtered_rows:
+        return
+    if filtered_rows[menu.row].startswith("No resources"):  # это касается только третьего меню
+        return
+    menu.win.addstr(menu.row + 3, 2, filtered_rows[menu.row])  # удаляем выделение с текущей строки
+    menu.row = (menu.row + increment[direction]) % len(filtered_rows)  # переходим к предыдущей/следующей строке
+    menu.win.addstr(menu.row + 3, 2, filtered_rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)  # и выделяем её
+
+
 def main(stdscr):
+    global running
     stdscr.refresh()
-    running = True
     # начальный экран
     for menu in menus:
         draw_rows(menu)  # рисуем строки меню
         draw_search_box(menu, "Press / for search")  # рисуем строку поиска
     while running:
-        match menu1.state:
-            # если первое меню выделено и в нём выключен поиск
-            case MenuState.SELECTED_WITHOUT_SEARCH:
-                menu = menu1
-                draw_header(menu, selected=True)
-                draw_search_box(menu, "Press / for search")  # рисуем строку поиска
-                key_pressed = stdscr.getkey()
-                match key_pressed:
-                    case "/":
-                        menu.state = MenuState.SELECTED_WITH_SEARCH
-                    case "q":
-                        running = False
-                        continue
-                    case '\t' | "KEY_RIGHT":
-                        menu.state = MenuState.NOT_SELECTED_WITHOUT_SEARCH
-                        menu2.state = MenuState.SELECTED_WITHOUT_SEARCH
-                    case "KEY_BTAB" | "KEY_LEFT":
-                        menu.state = MenuState.NOT_SELECTED_WITHOUT_SEARCH
-                        menu3.state = MenuState.SELECTED_WITHOUT_SEARCH
-                    case "KEY_DOWN":
-                        navigate_vertically("down", menu)
-                        #update_menu3(menu)
-                    case "KEY_UP":
-                        navigate_vertically("up", menu)
-                        #update_menu3(menu)
-                match menu2.state:
-                    case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                        menu = menu2
-                        draw_search_box(menu, "Press / for search")  # рисуем строку поиска
-                        match menu3.state:
-                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                                menu = menu3
-                                draw_header(menu)
-                                draw_search_box(menu, "Press / for search")
-                            case MenuState.NOT_SELECTED_WITH_SEARCH:
-                                pass
-                    case MenuState.NOT_SELECTED_WITH_SEARCH:
-                        pass
-            # если первое меню выделено и в нём включен поиск
-            case MenuState.SELECTED_WITH_SEARCH:
-                menu = menu1
-                draw_header(menu, selected=True)
-                draw_search_box(menu, f"/{menu.search_string}")  # рисуем строку поиска
-                key_pressed = stdscr.getkey()
-                match key_pressed:
-                    case "KEY_BACKSPACE":
-                        if menu.search_string:
-                            menu.search_string = menu.search_string[:-1]  # удаляем символ из строки поиска
-                            menu.win.clear()
-                            draw_search_box(menu, f"/{menu1.search_string}")
-                            draw_rows(menu)
-                        else:
-                            menu.state = MenuState.SELECTED_WITHOUT_SEARCH
-                            continue
-                    case "KEY_DOWN":
-                        navigate_vertically("down", menu)
-                        #update_menu3(menu)
-                    case "KEY_UP":
-                        navigate_vertically("up", menu)
-                        #update_menu3(menu)
-                    case _:
-                        if key_pressed.isalpha() or key_pressed == "-":  # namespace не может иметь иных символов кроме a-z и -
-                            menu.search_string += key_pressed
-                            menu.win.clear()
-                            draw_search_box(menu, f"/{menu1.search_string}")
-                            draw_rows(menu)
-                match menu2.state:
-                    case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                        match menu3.state:
-                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                                pass
-                            case MenuState.NOT_SELECTED_WITH_SEARCH:
-                                pass
-                    case MenuState.NOT_SELECTED_WITH_SEARCH:
-                        pass
-            # если первое меню не выделено и в нём выключен поиск
-            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                menu = menu1
-                draw_header(menu)
-                draw_search_box(menu, "Press / for search")  # рисуем строку поиска
-                match menu2.state:
-                    # если второе меню не выделено и в нём выключен поиск
-                    case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                        menu = menu2
-                        draw_header(menu)
-                        draw_search_box(menu, "Press / for search")  # рисуем строку поиска
-                        match menu3.state:
-                            # если третье меню выделено и в нём выключен поиск
-                            case MenuState.SELECTED_WITHOUT_SEARCH:
-                                menu = menu3
-                                draw_header(menu, selected=True)
-                                draw_search_box(menu, "Press / for search")  # рисуем строку поиска
-                                key_pressed = stdscr.getkey()
-                                match key_pressed:
-                                    case "/":
-                                        menu.state = MenuState.SELECTED_WITH_SEARCH
-                                        continue
-                                    case "q":
-                                        running = False
-                                        continue
-                                    case '\t' | "KEY_RIGHT":
-                                        menu.state = MenuState.NOT_SELECTED_WITHOUT_SEARCH
-                                        draw_header(menu)
-                                        menu1.state = MenuState.SELECTED_WITHOUT_SEARCH
-                                        continue
-                                    case "KEY_BTAB" | "KEY_LEFT":
-                                        menu.state = MenuState.NOT_SELECTED_WITHOUT_SEARCH
-                                        draw_header(menu)
-                                        menu2.state = MenuState.SELECTED_WITHOUT_SEARCH
-                                    case "KEY_DOWN":
-                                        navigate_vertically("down", menu)
-                                    case "KEY_UP":
-                                        navigate_vertically("up", menu)
-                    # если второе меню не выделено и в нём включен поиск
-                    case MenuState.NOT_SELECTED_WITH_SEARCH:
-                        pass
-                    # если второе меню выделено и в нём выключен поиск
-                    case MenuState.SELECTED_WITHOUT_SEARCH:
-                        menu = menu2
-                        draw_header(menu, selected=True)
-                        draw_search_box(menu, "Press / for search")
-                        key_pressed = stdscr.getkey()
-                        match key_pressed:
-                            case "/":
-                                menu.state = MenuState.SELECTED_WITH_SEARCH
-                                continue
-                            case "q":
-                                running = False
-                                continue
-                            case '\t' | "KEY_RIGHT":
-                                menu.state = MenuState.NOT_SELECTED_WITHOUT_SEARCH
-                                menu3.state = MenuState.SELECTED_WITHOUT_SEARCH
-                                continue
-                            case "KEY_BTAB" | "KEY_LEFT":
-                                menu.state = MenuState.NOT_SELECTED_WITHOUT_SEARCH
-                                draw_header(menu)
-                                menu1.state = MenuState.SELECTED_WITHOUT_SEARCH
-                            case "KEY_DOWN":
-                                navigate_vertically("down", menu)
-                            case "KEY_UP":
-                                navigate_vertically("up", menu)
-                        match menu3.state:
-                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                                pass
-                            case MenuState.NOT_SELECTED_WITH_SEARCH:
-                                pass
-                    # если второе меню выделено и в нём включен поиск
-                    case MenuState.SELECTED_WITH_SEARCH:
-                        pass
-            # если первое меню не выделено и в нём включен поиск
-            case MenuState.NOT_SELECTED_WITH_SEARCH:
-                match menu2.state:
-                    case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                        match menu3.state:
-                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                                pass
-                            case MenuState.NOT_SELECTED_WITH_SEARCH:
-                                pass
-                    case MenuState.NOT_SELECTED_WITH_SEARCH:
-                        pass
-                    case MenuState.SELECTED_WITHOUT_SEARCH:
-                        match menu3.state:
-                            case MenuState.NOT_SELECTED_WITHOUT_SEARCH:
-                                pass
-                            case MenuState.NOT_SELECTED_WITH_SEARCH:
-                                pass
-                    case MenuState.SELECTED_WITH_SEARCH:
-                        pass
-        
+        ### выбрано первое меню ###
+        if menu1.state == 1 and menu2.state == 3 and menu3.state == 3:
+            navigation_without_search(menu1)
+        if menu1.state == 1 and menu2.state == 4 and menu3.state == 3:
+            navigation_without_search(menu1)
+        if menu1.state == 1 and menu2.state == 3 and menu3.state == 4:
+            navigation_without_search(menu1)
+        if menu1.state == 1 and menu2.state == 4 and menu3.state == 4:
+            navigation_without_search(menu1)
+        elif menu1.state == 2 and menu2.state == 3 and menu3.state == 3:
+            navigation_with_search(menu1)
+        elif menu1.state == 2 and menu2.state == 4 and menu3.state == 3:
+            navigation_with_search(menu1)
+        elif menu1.state == 2 and menu2.state == 3 and menu3.state == 4:
+            navigation_with_search(menu1)
+        elif menu1.state == 2 and menu2.state == 4 and menu3.state == 4:
+            navigation_with_search(menu1)
+
+        ### выбрано второе меню ###
+        if menu1.state == 3 and menu2.state == 1 and menu3.state == 3:
+            navigation_without_search(menu2)
+        if menu1.state == 3 and menu2.state == 1 and menu3.state == 4:
+            navigation_without_search(menu2)
+        if menu1.state == 4 and menu2.state == 1 and menu3.state == 3:
+            navigation_without_search(menu2)
+        if menu1.state == 4 and menu2.state == 1 and menu3.state == 4:
+            navigation_without_search(menu2)
+        elif menu1.state == 3 and menu2.state == 2 and menu3.state == 3:
+            navigation_with_search(menu2)
+        elif menu1.state == 3 and menu2.state == 2 and menu3.state == 4:
+            navigation_with_search(menu2)
+        elif menu1.state == 4 and menu2.state == 2 and menu3.state == 3:
+            navigation_with_search(menu2)
+        elif menu1.state == 4 and menu2.state == 2 and menu3.state == 4:
+            navigation_with_search(menu2)
+
+        ### выбрано третье меню ###
+        if menu1.state == 3 and menu2.state == 3 and menu3.state == 1:
+            navigation_without_search(menu3)
+        if menu1.state == 3 and menu2.state == 4 and menu3.state == 1:
+            navigation_without_search(menu3)
+        if menu1.state == 4 and menu2.state == 3 and menu3.state == 1:
+            navigation_without_search(menu3)
+        if menu1.state == 4 and menu2.state == 4 and menu3.state == 1:
+            navigation_without_search(menu3)
+        elif menu1.state == 3 and menu2.state == 3 and menu3.state == 2:
+            navigation_with_search(menu3)
+        elif menu1.state == 3 and menu2.state == 4 and menu3.state == 2:
+            navigation_with_search(menu3)
+        elif menu1.state == 4 and menu2.state == 3 and menu3.state == 2:
+            navigation_with_search(menu3)
+        elif menu1.state == 4 and menu2.state == 4 and menu3.state == 2:
+            navigation_with_search(menu3)
+
+
 #        if current_menu == 0:
 #            if key_pressed == "/":
 #                search_mode = True
@@ -402,11 +365,12 @@ def main(stdscr):
 #                navigate_vertically("down", current_menu)
 #            case "KEY_UP":
 #                navigate_vertically("up", current_menu)
-main(stdscr)
+# main(stdscr)
+curses.wrapper(main)
 
-curses.nocbreak()
-stdscr.keypad(False)
-curses.echo()
-curses.endwin()
-subprocess.call(["clear"])
-
+# curses.nocbreak()
+# stdscr.keypad(False)
+# curses.echo()
+# curses.endwin()
+# subprocess.call(["clear"])
+#
