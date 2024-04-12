@@ -107,7 +107,7 @@ def draw_rows(menu):
     for index, row in enumerate(filtered_rows):  # рисуем то, что отфильтровали
         menu.win.addstr(index + 3, 2, row)
     # выделяем выбранную строку
-    menu.win.addstr(3, 2, filtered_rows[menu.selected_row], curses.A_REVERSE | curses.A_ITALIC)
+    menu.win.addstr(3 + menu.selected_row, 2, filtered_rows[menu.selected_row], curses.A_REVERSE | curses.A_ITALIC)
     menu.win.box()
     menu.win.refresh()
 
@@ -129,6 +129,11 @@ def draw_menu(menu):
     draw_header(menu)  # рисуем заголовок
     draw_rows(menu)  # рисуем строки меню
     draw_search_box(menu)  # рисуем строку поиска
+
+
+def draw_window():
+    for menu in menus:
+        draw_menu(menu)
 
 
 def catch_input(menu):
@@ -178,8 +183,7 @@ def catch_input(menu):
             command = f"f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'"
         # raise ValueError(str(menu.state) + ' ' + eval(command))
         run_command(command, namespace, api_resource, resource)
-        for menu in menus:
-            draw_menu(menu)
+        draw_window()
     elif (key_pressed.isalpha() or key_pressed == "-") and menu.state == SELECTED_WITH_SEARCH:  # объекты в кубе не могут иметь иных символов кроме a-z и -
             menu.filter += key_pressed
             menu.selected_row = 0
@@ -202,8 +206,8 @@ def navigate_horizontally(direction, menu):
         next_menu.state = SELECTED_WITH_SEARCH
     else:
         next_menu.state = SELECTED_WITHOUT_SEARCH
-    draw_header(menu)  # убираем выделение с текущего меню
-    draw_header(next_menu)  # выделяем заголовок следующего меню
+    draw_header(menu)  # убираем выделение с заголовка текущего меню
+    draw_header(next_menu)  # выделяем заголовок следующего/предыдущего меню
 
 
 def navigate_vertically(direction, menu):
@@ -223,8 +227,7 @@ def main(screen):
     global running
     screen.refresh()
     # рисуем начальный экран
-    for menu in menus:
-        draw_menu(menu)
+    draw_window()
     while running:
         ### выбрано первое меню ###
         if menu1.state in [1, 2]:
