@@ -247,4 +247,4 @@ curses.nocbreak()
 screen.keypad(False)
 curses.echo()
 curses.endwin()
-subprocess.call(["clear"])
+subprocess.call(["reset"])  # Потому что терминал не работает без этого после выхода из kld
