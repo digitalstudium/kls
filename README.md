@@ -2,10 +2,10 @@
 ## Description
 `kls` is a cli tool for managing kubernetes cluster resources. Inspired by `lf` and `ranger` file managers. Written on python curses.
 ## Hotkeys
-- `l` - logs of pod
-- `g` - get yaml of resource
-- `d` - describe resource
-- `e` - edit resource
+- `1` - get yaml of resource
+- `2` - describe resource
+- `3` - edit resource 
+- `4` - logs of pod
 
 ![kls in action](./images/kls.gif)
 ## Dependencies

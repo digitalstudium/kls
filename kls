@@ -91,12 +91,6 @@ def update_menu3():
     menu3.row = 0
 
 
-def draw_menu(menu):
-    draw_header(menu)  # рисуем заголовок
-    draw_rows(menu)  # рисуем строки меню
-    draw_search_box(menu)  # рисуем строку поиска
-
-
 def draw_header(menu):
     if menu.state in [1, 2]:
         menu.win.addstr(1, 2, menu.name, curses.A_REVERSE | curses.A_ITALIC)
@@ -127,6 +121,12 @@ def draw_search_box(menu):
     menu.win.refresh()  # обновляем окно
 
 
+def draw_menu(menu):
+    draw_header(menu)  # рисуем заголовок
+    draw_rows(menu)  # рисуем строки меню
+    draw_search_box(menu)  # рисуем строку поиска
+
+
 def catch_input(menu):
     global running
     key_pressed = screen.getkey()
@@ -153,7 +153,7 @@ def catch_input(menu):
         navigate_vertically("down", menu)
     elif key_pressed == "KEY_UP":
         navigate_vertically("up", menu)
-    elif key_pressed in "gdle" and menu3.state in [1, 2] and menu3.rows and not menu3.rows[menu3.row].startswith("No resources"):
+    elif key_pressed in "1234" and menu3.state in [1, 2] and menu3.rows and not menu3.rows[menu3.row].startswith("No resources"):
         menu3_filtered_rows = list(filter(lambda x: (x.startswith(menu3.filter)), menu3.rows))  # фильтруем строки меню 3
         if not menu3_filtered_rows:
             return
@@ -162,16 +162,16 @@ def catch_input(menu):
         namespace = menu1_filtered_rows[menu1.row]
         api_resource = menu2_filtered_rows[menu2.row]
         resource = menu3.rows[menu3.row]
-        if key_pressed == 'g':
+        if key_pressed == '1':  # get
             command = f"f'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers'"
-        elif key_pressed == 'd':
+        elif key_pressed == '2':  # describe
             command = f"f'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers'"
-        elif key_pressed == 'l' and api_resource != "pods":
-            return
-        elif key_pressed == 'l' and api_resource == "pods":
-            command = f"f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'"
-        if key_pressed == 'e':
+        elif key_pressed == '3':  # edit
             command = f"f'kubectl edit {api_resource} -n {namespace} {resource}'"
+        elif key_pressed == '4' and api_resource != "pods":
+            return
+        elif key_pressed == '4' and api_resource == "pods":  # logs
+            command = f"f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'"
         # raise ValueError(str(menu.state) + ' ' + eval(command))
         run_command(command, namespace, api_resource, resource)
     elif (key_pressed.isalpha() or key_pressed == "-") and menu.state == SELECTED_WITH_SEARCH:  # объекты в кубе не могут иметь иных символов кроме a-z и -
