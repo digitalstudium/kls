@@ -36,8 +36,7 @@ class Menu:
         self.begin_x = begin_x  # где начинается окно по х?
         self.win = curses.newwin(curses.LINES, curses.COLS // 3, 0,
                                  begin_x)  # окно с высотой во весь экран, шириной экран / 3, и началом по х в точке begin_x
-        self.win.box()  # ?
-        self.row = 0  # выбранная строка
+        self.selected_row = 0  # выбранная строка
         self.filter = ""
 
 
@@ -74,21 +73,21 @@ def run_command(command, namespace, api_resource, resource):
     curses.reset_shell_mode()
 
 
-def update_menu3():
+def update_menu3_object():
     menu1_filtered_rows = list(filter(lambda x: (x.startswith(menu1.filter)), menu1.rows))  # фильтруем строки
     menu2_filtered_rows = list(filter(lambda x: (x.startswith(menu2.filter)), menu2.rows))  # фильтруем строки
     if not menu1_filtered_rows or not menu2_filtered_rows:
         resources = [f"No resources matched criteria.", ]
     else:
-        namespace = menu1_filtered_rows[menu1.row]
-        api_resource = menu2_filtered_rows[menu2.row]
+        namespace = menu1_filtered_rows[menu1.selected_row]
+        api_resource = menu2_filtered_rows[menu2.selected_row]
         command = "f'kubectl get {api_resource} -n {namespace} --no-headers -o template=\"{{{{range .items}}}}{{{{.metadata.name}}}} {{{{end}}}}\"'"
         bytes_list = subprocess.check_output(eval(command), shell=True).split()
         resources = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
         if not resources:
             resources = [f"No resources found in {namespace} namespace.", ]
     menu3.rows = resources
-    menu3.row = 0
+    menu3.selected_row = 0
 
 
 def draw_header(menu):
@@ -100,11 +99,15 @@ def draw_header(menu):
 
 
 def draw_rows(menu):
-    filtered_rows = list(filter(lambda x: (x.startswith(menu.filter)), menu.rows))  # фильтруем строки
+    # какие строки сейчас в меню, учитывая фильтр?
+    filtered_rows = list(filter(lambda x: (x.startswith(menu.filter)), menu.rows))
+    # если строк нет, рисовать их не нужно
+    if not filtered_rows:
+        return
     for index, row in enumerate(filtered_rows):  # рисуем то, что отфильтровали
         menu.win.addstr(index + 3, 2, row)
-    if filtered_rows:
-        menu.win.addstr(3, 2, filtered_rows[0], curses.A_REVERSE | curses.A_ITALIC)  # выделяем первую строку
+    # выделяем выбранную строку
+    menu.win.addstr(3, 2, filtered_rows[menu.selected_row], curses.A_REVERSE | curses.A_ITALIC)
     menu.win.box()
     menu.win.refresh()
 
@@ -122,6 +125,7 @@ def draw_search_box(menu):
 
 
 def draw_menu(menu):
+    menu.win.clear()  # очищаем окно меню
     draw_header(menu)  # рисуем заголовок
     draw_rows(menu)  # рисуем строки меню
     draw_search_box(menu)  # рисуем строку поиска
@@ -132,19 +136,19 @@ def catch_input(menu):
     key_pressed = screen.getkey()
     if key_pressed == "/":
         menu.state = SELECTED_WITH_SEARCH
+        draw_search_box(menu)
     elif key_pressed == "q" and menu.state == SELECTED_WITHOUT_SEARCH:
         running = False
     elif key_pressed == "\x1b" and menu.state == SELECTED_WITH_SEARCH:  # Escape disables search mode
         menu.filter = ""
-        menu.win.clear()
-        draw_rows(menu)
         menu.state = SELECTED_WITHOUT_SEARCH
+        draw_menu(menu)
     elif key_pressed == "KEY_BACKSPACE" and menu.filter:
         menu.filter = menu.filter[:-1]  # удаляем символ из строки поиска
-        menu.win.clear()
         draw_menu(menu)
     elif key_pressed == "KEY_BACKSPACE" and not menu.filter:
             menu.state = SELECTED_WITHOUT_SEARCH
+            draw_search_box(menu)
     elif key_pressed == '\t' or key_pressed == "KEY_RIGHT":
         navigate_horizontally("right", menu)
     elif key_pressed == "KEY_BTAB" or key_pressed == "KEY_LEFT":
@@ -153,35 +157,35 @@ def catch_input(menu):
         navigate_vertically("down", menu)
     elif key_pressed == "KEY_UP":
         navigate_vertically("up", menu)
-    elif key_pressed in "1234" and menu3.state in [1, 2] and menu3.rows and not menu3.rows[menu3.row].startswith("No resources"):
+    elif key_pressed in ["KEY_F(1)", "KEY_F(2)", "KEY_F(3)", "KEY_F(4)"] and menu3.rows and not menu3.rows[menu3.selected_row].startswith("No resources"):
         menu3_filtered_rows = list(filter(lambda x: (x.startswith(menu3.filter)), menu3.rows))  # фильтруем строки меню 3
         if not menu3_filtered_rows:
             return
         menu1_filtered_rows = list(filter(lambda x: (x.startswith(menu1.filter)), menu1.rows))  # фильтруем строки
         menu2_filtered_rows = list(filter(lambda x: (x.startswith(menu2.filter)), menu2.rows))  # фильтруем строки
-        namespace = menu1_filtered_rows[menu1.row]
-        api_resource = menu2_filtered_rows[menu2.row]
-        resource = menu3.rows[menu3.row]
-        if key_pressed == '1':  # get
+        namespace = menu1_filtered_rows[menu1.selected_row]
+        api_resource = menu2_filtered_rows[menu2.selected_row]
+        resource = menu3.rows[menu3.selected_row]
+        if key_pressed == "KEY_F(1)":  # get
             command = f"f'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers'"
-        elif key_pressed == '2':  # describe
+        elif key_pressed == "KEY_F(2)":  # describe
             command = f"f'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers'"
-        elif key_pressed == '3':  # edit
+        elif key_pressed == "KEY_F(3)":  # edit
             command = f"f'kubectl edit {api_resource} -n {namespace} {resource}'"
-        elif key_pressed == '4' and api_resource != "pods":
+        elif key_pressed == "KEY_F(4)" and api_resource != "pods":
             return
-        elif key_pressed == '4' and api_resource == "pods":  # logs
+        elif key_pressed == "KEY_F(4)" and api_resource == "pods":  # logs
             command = f"f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'"
         # raise ValueError(str(menu.state) + ' ' + eval(command))
         run_command(command, namespace, api_resource, resource)
+        for menu in menus:
+            draw_menu(menu)
     elif (key_pressed.isalpha() or key_pressed == "-") and menu.state == SELECTED_WITH_SEARCH:  # объекты в кубе не могут иметь иных символов кроме a-z и -
             menu.filter += key_pressed
-            menu.win.clear()
-            menu.row = 0
+            menu.selected_row = 0
             draw_menu(menu)
-    if menu != menu3 and not (key_pressed in ["KEY_RIGHT", "KEY_LEFT", "\t", "KEY_BTAB"] ):
-        menu3.win.clear()
-        update_menu3()
+    if menu != menu3 and not (key_pressed in ["KEY_RIGHT", "KEY_LEFT", "\t", "KEY_BTAB", "/"]):
+        update_menu3_object()
         draw_menu(menu3)
 
 
@@ -194,11 +198,12 @@ def navigate_horizontally(direction, menu):
         menu.state = NOT_SELECTED_WITH_SEARCH
     else:
         menu.state = NOT_SELECTED_WITHOUT_SEARCH
-    draw_header(menu)  # убираем выделение с текущего меню
     if next_menu.filter:
         next_menu.state = SELECTED_WITH_SEARCH
     else:
         next_menu.state = SELECTED_WITHOUT_SEARCH
+    draw_header(menu)  # убираем выделение с текущего меню
+    draw_header(next_menu)  # выделяем заголовок следующего меню
 
 
 def navigate_vertically(direction, menu):
@@ -208,9 +213,10 @@ def navigate_vertically(direction, menu):
     if not filtered_rows or len(filtered_rows) == 1:
         return
     increment = {"down": 1, "up": -1}
-    menu.win.addstr(menu.row + 3, 2, filtered_rows[menu.row])  # удаляем выделение с текущей строки
-    menu.row = (menu.row + increment[direction]) % len(filtered_rows)  # переходим к предыдущей/следующей строке
-    menu.win.addstr(menu.row + 3, 2, filtered_rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)  # и выделяем её
+    menu.win.addstr(menu.selected_row + 3, 2, filtered_rows[menu.selected_row])  # удаляем выделение с текущей строки
+    menu.selected_row = (menu.selected_row + increment[direction]) % len(filtered_rows)  # переходим к предыдущей/следующей строке
+    menu.win.addstr(menu.selected_row + 3, 2, filtered_rows[menu.selected_row], curses.A_REVERSE | curses.A_ITALIC)  # и выделяем её
+    menu.win.refresh()
 
 
 def main(screen):
@@ -222,19 +228,13 @@ def main(screen):
     while running:
         ### выбрано первое меню ###
         if menu1.state in [1, 2]:
-            draw_header(menu1)  # рисуем заголовок
-            draw_search_box(menu1)  # рисуем строку поиска
-            catch_input(menu1)  # перехватываем нажатия клавиш
+            catch_input(menu1)  # перехватываем нажатия клавиш первого меню
         ### выбрано второе меню ###
         elif menu2.state in [1, 2]:
-            draw_header(menu2)  # рисуем заголовок
-            draw_search_box(menu2)  # рисуем строку поиска
-            catch_input(menu2)  # перехватываем нажатия клавиш
+            catch_input(menu2)  # перехватываем нажатия клавиш второго меню
         ### выбрано третье меню ###
         elif menu3.state in [1, 2]:
-            draw_header(menu3)  # рисуем заголовок
-            draw_search_box(menu3)  # рисуем строку поиска
-            catch_input(menu3)  # перехватываем нажатия клавиш
+            catch_input(menu3)  # перехватываем нажатия клавиш третьего меню
 
 
 main(screen)
