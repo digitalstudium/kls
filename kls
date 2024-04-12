@@ -111,7 +111,7 @@ def draw_rows(menu):
 
 def draw_search_box(menu):
     # рисуем строку поиска
-    if menu.state in [2, 4]:
+    if menu.state in [SELECTED_WITH_SEARCH, NOT_SELECTED_WITH_SEARCH]:
         content = f"/{menu.filter}"
     else:
         content = "Press / for search"
@@ -202,12 +202,12 @@ def navigate_horizontally(direction, menu):
 
 
 def navigate_vertically(direction, menu):
-    increment = {"down": 1, "up": -1}
-    filtered_rows = list(filter(lambda x: (x.startswith(menu.filter)), menu.rows))  # фильтруем строки
+    # какие строки сейчас в меню, учитывая фильтр?
+    filtered_rows = list(filter(lambda x: (x.startswith(menu.filter)), menu.rows))
+    # если строк нет или строка одна, навигация не нужна
     if not filtered_rows or len(filtered_rows) == 1:
         return
-    elif filtered_rows[menu.row].startswith("No resources"):  # это касается только третьего меню
-        return
+    increment = {"down": 1, "up": -1}
     menu.win.addstr(menu.row + 3, 2, filtered_rows[menu.row])  # удаляем выделение с текущей строки
     menu.row = (menu.row + increment[direction]) % len(filtered_rows)  # переходим к предыдущей/следующей строке
     menu.win.addstr(menu.row + 3, 2, filtered_rows[menu.row], curses.A_REVERSE | curses.A_ITALIC)  # и выделяем её
@@ -216,7 +216,7 @@ def navigate_vertically(direction, menu):
 def main(screen):
     global running
     screen.refresh()
-    # начальный экран
+    # рисуем начальный экран
     for menu in menus:
         draw_menu(menu)
     while running:
