@@ -77,8 +77,8 @@ def run_command(command, namespace, api_resource, resource):
 
 
 def update_menu3_object():
-    menu1_filtered_rows = list(filter(lambda x: (x.startswith(menu1.filter)), menu1.rows))  # фильтруем строки
-    menu2_filtered_rows = list(filter(lambda x: (x.startswith(menu2.filter)), menu2.rows))  # фильтруем строки
+    menu1_filtered_rows = list(filter(lambda x: (menu1.filter in x), menu1.rows))  # фильтруем строки
+    menu2_filtered_rows = list(filter(lambda x: (menu2.filter in x), menu2.rows))  # фильтруем строки
     if not menu1_filtered_rows or not menu2_filtered_rows:
         resources = [f"No resources matched criteria.", ]
     else:
@@ -103,7 +103,7 @@ def draw_header(menu):
 
 def draw_rows(menu):
     # какие строки сейчас в меню, учитывая фильтр?
-    filtered_rows = list(filter(lambda x: (x.startswith(menu.filter)), menu.rows))
+    filtered_rows = list(filter(lambda x: (menu.filter in x), menu.rows))
     # если строк нет, рисовать их не нужно
     if not filtered_rows:
         return
@@ -177,11 +177,11 @@ def catch_input(menu):
     elif key_pressed == "KEY_UP":
         navigate_vertically("up", menu)
     elif key_pressed in ["KEY_F(1)", "KEY_F(2)", "KEY_F(3)", "KEY_F(4)"] and menu3.rows and not menu3.rows[menu3.selected_row].startswith("No resources"):
-        menu3_filtered_rows = list(filter(lambda x: (x.startswith(menu3.filter)), menu3.rows))  # фильтруем строки меню 3
+        menu3_filtered_rows = list(filter(lambda x: (menu3.filter in x), menu3.rows))  # фильтруем строки меню 3
         if not menu3_filtered_rows:
             return
-        menu1_filtered_rows = list(filter(lambda x: (x.startswith(menu1.filter)), menu1.rows))  # фильтруем строки
-        menu2_filtered_rows = list(filter(lambda x: (x.startswith(menu2.filter)), menu2.rows))  # фильтруем строки
+        menu1_filtered_rows = list(filter(lambda x: (menu1.filter in x), menu1.rows))  # фильтруем строки
+        menu2_filtered_rows = list(filter(lambda x: (menu2.filter in x), menu2.rows))  # фильтруем строки
         namespace = menu1_filtered_rows[menu1.selected_row]
         api_resource = menu2_filtered_rows[menu2.selected_row]
         resource = menu3.rows[menu3.selected_row]
@@ -225,7 +225,7 @@ def navigate_horizontally(direction, menu):
 
 def navigate_vertically(direction, menu):
     # какие строки сейчас в меню, учитывая фильтр?
-    filtered_rows = list(filter(lambda x: (x.startswith(menu.filter)), menu.rows))
+    filtered_rows = list(filter(lambda x: (menu.filter in x), menu.rows))
     # если строк нет или строка одна, навигация не нужна
     if not filtered_rows or len(filtered_rows) == 1:
         return
