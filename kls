@@ -46,13 +46,16 @@ bytes_list = subprocess.check_output(
     "kubectl get ns --no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'", shell=True).split()
 namespaces = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
 ## отрисовываем меню
-menu1 = Menu("Namespaces", namespaces, 0, curses.COLS // 4, SELECTED_WITHOUT_SEARCH)
+menu1 = Menu("Namespaces", namespaces, 0, curses.COLS // 5, SELECTED_WITHOUT_SEARCH)
 
 # рисуем второе меню
 ## готовим контент
-api_resources = ["pods", "services", "deployments", "statefulsets", "ingresses", "configmaps", "secrets"]
+api_resources_top = ["pods", "services", "deployments", "statefulsets", "ingresses", "configmaps", "secrets", "persistentvolumes", "nodes", "storageclasses"]
+bytes_list = subprocess.check_output("kubectl api-resources -o name --verbs get", shell=True).split()
+api_resources_kubectl = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
+api_resources = api_resources_top + list(set(api_resources_kubectl) - set(api_resources_top))
 ## отрисовываем меню
-menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 4, curses.COLS // 4, NOT_SELECTED_WITHOUT_SEARCH)
+menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 5, curses.COLS // 5 * 2, NOT_SELECTED_WITHOUT_SEARCH)
 
 # рисуем третье меню
 ## готовим контент
@@ -61,7 +64,7 @@ bytes_list = subprocess.check_output(
     shell=True).split()
 pods = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
 ## отрисовываем меню
-menu3 = Menu("Resources", pods, 0 + curses.COLS // 4 * 2, curses.COLS // 2, NOT_SELECTED_WITHOUT_SEARCH)
+menu3 = Menu("Resources", pods, 0 + curses.COLS // 5 * 3, curses.COLS // 5 * 2, NOT_SELECTED_WITHOUT_SEARCH)
 
 menus = [menu1, menu2, menu3]
 
@@ -108,15 +111,17 @@ def draw_rows(menu):
     if menu.selected_row < menu.rows_number:
         first_row_index = 0
     else:
-        first_row_index = (menu.selected_row % menu.rows_number) + (menu.selected_row // menu.rows_number)
+        first_row_index = menu.selected_row - menu.rows_number + 1
     last_row_index = first_row_index + menu.rows_number
     filtered_rows = filtered_rows[first_row_index:last_row_index]
     # индекс выбранной строки в отфильтрованных строках
-    selected_row_in_window = menu.selected_row - first_row_index
+    selected_row_index = menu.selected_row - first_row_index
+#    if menu2.selected_row != 0:  # debug
+#        raise ValueError(f"{len(filtered_rows)} {selected_row_index} {first_row_index} {last_row_index} {menu.rows_number}")
     for index, row in enumerate(filtered_rows):  # рисуем то, что отфильтровали
         menu.win.addstr(index + 3, 2, row)
     # выделяем выбранную строку
-    menu.win.addstr(selected_row_in_window + 3, 2, filtered_rows[selected_row_in_window], curses.A_REVERSE | curses.A_ITALIC)
+    menu.win.addstr(selected_row_index + 3, 2, filtered_rows[selected_row_index], curses.A_REVERSE | curses.A_ITALIC)
     menu.win.box()
     menu.win.refresh()
 
@@ -190,7 +195,6 @@ def catch_input(menu):
             return
         elif key_pressed == "KEY_F(4)" and api_resource == "pods":  # logs
             command = f"f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'"
-        # raise ValueError(str(menu.state) + ' ' + eval(command))
         run_command(command, namespace, api_resource, resource)
         draw_window()
     elif (key_pressed.isalpha() or key_pressed == "-") and menu.state == SELECTED_WITH_SEARCH:  # объекты в кубе не могут иметь иных символов кроме a-z и -
