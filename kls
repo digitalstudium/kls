@@ -29,15 +29,15 @@ init_screen()
 
 
 class Menu:
-    def __init__(self, name, rows, begin_x, state):
+    def __init__(self, name, rows, begin_x, width, state):
         self.state = state
         self.name = name  # заголовок окна
         self.rows = rows  # строки окна
         self.begin_x = begin_x  # где начинается окно по х?
-        self.win = curses.newwin(curses.LINES, curses.COLS // 3, 0,
-                                 begin_x)  # окно с высотой во весь экран, шириной экран / 3, и началом по х в точке begin_x
+        self.win = curses.newwin(curses.LINES, width, 0,
+                                 begin_x)  # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
         self.selected_row = 0  # выбранная строка
-        self.filter = ""
+        self.filter = ""  # фильтр строк для вывода
 
 
 # рисуем первое меню
@@ -46,13 +46,13 @@ bytes_list = subprocess.check_output(
     "kubectl get ns --no-headers -o template='{{range .items}}{{.metadata.name}} {{end}}'", shell=True).split()
 namespaces = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
 ## отрисовываем меню
-menu1 = Menu("Namespaces", namespaces, 0, SELECTED_WITHOUT_SEARCH)
+menu1 = Menu("Namespaces", namespaces, 0, curses.COLS // 4, SELECTED_WITHOUT_SEARCH)
 
 # рисуем второе меню
 ## готовим контент
 api_resources = ["pods", "services", "deployments", "statefulsets", "ingresses", "configmaps", "secrets"]
 ## отрисовываем меню
-menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 3, NOT_SELECTED_WITHOUT_SEARCH)
+menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 4, curses.COLS // 4, NOT_SELECTED_WITHOUT_SEARCH)
 
 # рисуем третье меню
 ## готовим контент
@@ -61,7 +61,7 @@ bytes_list = subprocess.check_output(
     shell=True).split()
 pods = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
 ## отрисовываем меню
-menu3 = Menu("Resources", pods, 0 + curses.COLS // 3 * 2, NOT_SELECTED_WITHOUT_SEARCH)
+menu3 = Menu("Resources", pods, 0 + curses.COLS // 4 * 2, curses.COLS // 2, NOT_SELECTED_WITHOUT_SEARCH)
 
 menus = [menu1, menu2, menu3]
 
