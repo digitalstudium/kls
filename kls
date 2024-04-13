@@ -53,7 +53,7 @@ menu1 = Menu("Namespaces", namespaces, 0, curses.COLS // 5, SELECTED_WITHOUT_SEA
 api_resources_top = ["pods", "services", "deployments", "statefulsets", "ingresses", "configmaps", "secrets", "persistentvolumes", "nodes", "storageclasses"]
 bytes_list = subprocess.check_output("kubectl api-resources -o name --verbs get", shell=True).split()
 api_resources_kubectl = [bytes_list[i].decode('utf-8') for i in range(len(bytes_list))]
-api_resources = api_resources_top + list(set(api_resources_kubectl) - set(api_resources_top))
+api_resources = api_resources_top + sorted(list(set(api_resources_kubectl) - set(api_resources_top)))
 ## отрисовываем меню
 menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 5, curses.COLS // 5 * 2, NOT_SELECTED_WITHOUT_SEARCH)
 
