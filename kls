@@ -32,11 +32,11 @@ class Menu:
     def __init__(self, name, rows, begin_x, width, state):
         self.state = state
         self.name = name  # заголовок окна
-        self.rows = rows  # строки окна
+        self.rows = rows  # строки меню
+        self.selected_row = 0  # выбранная строка меню
         self.begin_x = begin_x  # где начинается окно по х?
-        self.win = curses.newwin(curses.LINES, width, 0,
-                                 begin_x)  # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
-        self.selected_row = 0  # выбранная строка
+        self.win = curses.newwin(curses.LINES, width, 0, begin_x)  # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
+        self.rows_number = curses.LINES - 10  # максимальное число строк меню видимое в окне, начиная с 0
         self.filter = ""  # фильтр строк для вывода
 
 
@@ -104,10 +104,19 @@ def draw_rows(menu):
     # если строк нет, рисовать их не нужно
     if not filtered_rows:
         return
+    # ограничиваем число отфильтрованных строк высотой окна + выбираем, от какой cтроки меню будет начинаться меню
+    if menu.selected_row < menu.rows_number:
+        first_row_index = 0
+    else:
+        first_row_index = (menu.selected_row % menu.rows_number) + (menu.selected_row // menu.rows_number)
+    last_row_index = first_row_index + menu.rows_number
+    filtered_rows = filtered_rows[first_row_index:last_row_index]
+    # индекс выбранной строки в отфильтрованных строках
+    selected_row_in_window = menu.selected_row - first_row_index
     for index, row in enumerate(filtered_rows):  # рисуем то, что отфильтровали
         menu.win.addstr(index + 3, 2, row)
     # выделяем выбранную строку
-    menu.win.addstr(3 + menu.selected_row, 2, filtered_rows[menu.selected_row], curses.A_REVERSE | curses.A_ITALIC)
+    menu.win.addstr(selected_row_in_window + 3, 2, filtered_rows[selected_row_in_window], curses.A_REVERSE | curses.A_ITALIC)
     menu.win.box()
     menu.win.refresh()
 
@@ -217,10 +226,8 @@ def navigate_vertically(direction, menu):
     if not filtered_rows or len(filtered_rows) == 1:
         return
     increment = {"down": 1, "up": -1}
-    menu.win.addstr(menu.selected_row + 3, 2, filtered_rows[menu.selected_row])  # удаляем выделение с текущей строки
-    menu.selected_row = (menu.selected_row + increment[direction]) % len(filtered_rows)  # переходим к предыдущей/следующей строке
-    menu.win.addstr(menu.selected_row + 3, 2, filtered_rows[menu.selected_row], curses.A_REVERSE | curses.A_ITALIC)  # и выделяем её
-    menu.win.refresh()
+    menu.selected_row = (menu.selected_row + increment[direction]) % len(filtered_rows)  # выбираем строку учитывая сколько строк в меню
+    draw_menu(menu)  # перерисовываем меню
 
 
 def main(screen):
@@ -239,9 +246,7 @@ def main(screen):
         elif menu3.state in [1, 2]:
             catch_input(menu3)  # перехватываем нажатия клавиш третьего меню
 
-
 main(screen)
-# curses.wrapper(main)
 
 curses.nocbreak()
 screen.keypad(False)
