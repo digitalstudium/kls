@@ -37,15 +37,15 @@ class Menu:
 
 # инициализируем меню
 namespaces = [ns for ns in subprocess.check_output("kubectl get ns --no-headers | awk '{print $1}'", shell=True).decode("utf-8").split("\n") if ns]
-menu1 = Menu("Namespaces", namespaces, 0, curses.COLS // 5, SELECTED_WITHOUT_SEARCH)
+menu1 = Menu("Namespaces", namespaces, 0, curses.COLS // 10 * 2, SELECTED_WITHOUT_SEARCH)
 
 api_resources_top = ["pods", "services", "deployments", "statefulsets", "daemonsets", "ingresses", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "nodes", "storageclasses"]
 api_resources_kubectl = [i for i in subprocess.check_output("kubectl api-resources --no-headers --verbs get | awk '{print $1}'", shell=True).decode("utf-8").split("\n") if i]
 api_resources = api_resources_top + sorted(list(set(api_resources_kubectl) - set(api_resources_top)))
-menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 5, curses.COLS // 10 * 3, NOT_SELECTED_WITHOUT_SEARCH)
+menu2 = Menu("API resources", api_resources, curses.COLS // 10 * 2, curses.COLS // 10 * 3, NOT_SELECTED_WITHOUT_SEARCH)
 
 pods = [p for p in subprocess.check_output(f"kubectl get pods --no-headers -n {namespaces[0]} | awk '{{print $1}}'", shell=True).decode("utf-8").split("\n") if p]
-menu3 = Menu("Resources", pods, 0 + curses.COLS // 2, curses.COLS // 2, NOT_SELECTED_WITHOUT_SEARCH)
+menu3 = Menu("Resources", pods, curses.COLS // 10 * 5, curses.COLS - curses.COLS // 10 * 5, NOT_SELECTED_WITHOUT_SEARCH)
 
 menus = [menu1, menu2, menu3]
 
@@ -200,6 +200,4 @@ def main():
 
 
 main()
-curses.echo()
-curses.endwin()
 subprocess.call(["reset"])  # Потому что терминал не работает без этого после выхода из kls
