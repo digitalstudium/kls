@@ -17,11 +17,14 @@ class Menu:
         self.state = state  # состояние меню
         self.name = name  # заголовок меню
         self.rows = rows  # строки меню
+        self.filter = ""  # фильтр строк меню
         self.selected_row = 0  # выбранная строка меню
         self.begin_x = begin_x  # где начинается меню по х?
         self.win = curses.newwin(curses.LINES, width, 0, begin_x)  # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
         self.rows_number = curses.LINES - 10  # максимальное число видимых строк меню, начиная с 0
-        self.filter = ""  # фильтр строк меню
+    @property
+    def filtered_rows(self):
+        return list(filter(lambda x: (self.filter in x), self.rows))  # фильтрованные строки меню
 
 
 def execute_cmd(command):
@@ -42,45 +45,38 @@ menus = [
 
 
 def update_menu3_object():
-    menu1_filtered_rows = list(filter(lambda x: (menus[0].filter in x), menus[0].rows))  # фильтруем строки
-    menu2_filtered_rows = list(filter(lambda x: (menus[1].filter in x), menus[1].rows))  # фильтруем строки
-    if not menu1_filtered_rows or not menu2_filtered_rows:
+    if not menus[0].filtered_rows or not menus[1].filtered_rows:
         menus[2].rows = ["No resources matched criteria.", ]
     else:
-        namespace = menu1_filtered_rows[menus[0].selected_row]
-        api_resource = menu2_filtered_rows[menus[1].selected_row]
+        namespace = menus[0].filtered_rows[menus[0].selected_row]
+        api_resource = menus[1].filtered_rows[menus[1].selected_row]
         menus[2].rows = execute_cmd(f"kubectl get {api_resource} --no-headers -n {namespace} | awk '{{print $1}}'")
         if not menus[2].rows: menus[2].rows = [f"No resources found in {namespace} namespace.", ]
     menus[2].selected_row = 0
 
 
 def draw_header(menu):
-    header_attr = curses.A_REVERSE | curses.A_BOLD  if menu.state in [1, 2] else curses.A_NORMAL
-    menu.win.addstr(1, 2, menu.name, header_attr)
+    menu.win.addstr(1, 2, menu.name, curses.A_REVERSE | curses.A_BOLD  if menu.state in [1, 2] else curses.A_NORMAL)
     menu.win.refresh()
 
 
 def draw_rows(menu):
-    filtered_rows = list(filter(lambda x: (menu.filter in x), menu.rows))  # какие строки сейчас в меню, учитывая фильтр?
-    if not filtered_rows: return  # если строк нет, рисовать нечего
+    if not menu.filtered_rows: return  # если строк нет, рисовать нечего
     # ограничиваем число отфильтрованных строк высотой окна + выбираем, от какой cтроки меню будет начинаться меню
     first_row_index = 0 if menu.selected_row < menu.rows_number else menu.selected_row - menu.rows_number + 1
     last_row_index = first_row_index + menu.rows_number
-    filtered_rows = filtered_rows[first_row_index:last_row_index]
+    filtered_rows = menu.filtered_rows[first_row_index:last_row_index]
     selected_row_index = menu.selected_row - first_row_index  # индекс выбранной строки в отфильтрованных строках
 #    if menus[1].selected_row != 0:  # debug
 #        raise ValueError(f"{len(filtered_rows)} {selected_row_index} {first_row_index} {last_row_index} {menu.rows_number}")
     for index, row in enumerate(filtered_rows):  # рисуем то, что отфильтровали
-        menu.win.addstr(index + 3, 2, row)
-    menu.win.addstr(selected_row_index + 3, 2, filtered_rows[selected_row_index], curses.A_REVERSE | curses.A_BOLD)  # выделяем выбранную строку
+        menu.win.addstr(index + 3, 2, row, curses.A_REVERSE | curses.A_BOLD if index == selected_row_index else curses.A_NORMAL)
     menu.win.box()
     menu.win.refresh()
 
 
 def draw_search_box(menu):
-    search_attr = curses.A_REVERSE | curses.A_BOLD if menu.state in [SELECTED_WITH_SEARCH, NOT_SELECTED_WITH_SEARCH] else curses.A_NORMAL
-    content = f"/{menu.filter}" if menu.state in [SELECTED_WITH_SEARCH, NOT_SELECTED_WITH_SEARCH] else "Press / for search"
-    menu.win.addstr(curses.LINES - 2, 2, content, search_attr)  # рисуем контент
+    menu.win.addstr(curses.LINES - 2, 2, f"/{menu.filter}" if menu.state in [2, 4] else "Press / for search")  # рисуем контент
     menu.win.clrtoeol()  # очищаем остальную часть строки
     menu.win.box()  # рисуем рамку
     menu.win.refresh()  # обновляем окно
@@ -99,13 +95,10 @@ def draw_window():
 
 
 def run_command(key_pressed):
-    menu3_filtered_rows = list(filter(lambda x: (menus[2].filter in x), menus[2].rows))  # фильтруем строки меню 3
-    if not menu3_filtered_rows or menu3_filtered_rows[0].startswith("No resources"): return  # если пусто, выходим
-    menu2_filtered_rows = list(filter(lambda x: (menus[1].filter in x), menus[1].rows))  # фильтруем строки меню 2
-    api_resource = menu2_filtered_rows[menus[1].selected_row]
+    if not menus[2].filtered_rows or menus[2].filtered_rows[0].startswith("No resources"): return  # если пусто, выходим
+    api_resource = menus[1].filtered_rows[menus[1].selected_row]
     if key_pressed == "KEY_F(4)" and api_resource != "pods": return  # логи можно посмотреть только у подов
-    menu1_filtered_rows = list(filter(lambda x: (menus[0].filter in x), menus[0].rows))  # фильтруем строки меню 1
-    namespace = menu1_filtered_rows[menus[0].selected_row]
+    namespace = menus[0].filtered_rows[menus[0].selected_row]
     resource = menus[2].rows[menus[2].selected_row]
     commands = {
         "KEY_F(1)": f'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',
@@ -114,7 +107,6 @@ def run_command(key_pressed):
         "KEY_F(4)": f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'
     }
     curses.def_shell_mode()
-    curses.endwin()
     subprocess.call(commands[key_pressed], shell=True)
     curses.reset_shell_mode()
     draw_window()
@@ -130,10 +122,9 @@ def navigate_horizontally(direction, menu):
 
 
 def navigate_vertically(direction, menu):
-    filtered_rows = list(filter(lambda x: (menu.filter in x), menu.rows))  # какие строки сейчас в меню, учитывая фильтр?
-    if not filtered_rows or len(filtered_rows) == 1: return  # если строк нет или строка одна, навигация не нужна
+    if not menu.filtered_rows or len(menu.filtered_rows) == 1: return  # если строк нет или строка одна, навигация не нужна
     increment = {"down": 1, "up": -1}
-    menu.selected_row = (menu.selected_row + increment[direction]) % len(filtered_rows)  # выбираем строку учитывая сколько строк в меню
+    menu.selected_row = (menu.selected_row + increment[direction]) % len(menu.filtered_rows)  # выбираем строку учитывая сколько строк в меню
     if menu != menus[2]:  # перерисовываем третье меню, т. к. оно зависит от вертикальной навигации в меню 1 и 2
         update_menu3_object()
         draw_menu(menus[2])
