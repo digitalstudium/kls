@@ -12,7 +12,7 @@ curses.start_color()  # инициализируем цвета
 curses.use_default_colors()  # для работы прозрачного фона
 if curses.has_colors():
     curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)  # белый на голубом - для заголовка
-    curses.init_pair(2, curses.COLOR_WHITE, -1)  # белый на дефолтном - для остальных строк
+    curses.init_pair(2, curses.COLOR_CYAN, -1)  # бежевый на дефолтном - для остальных строк
 
 # состояния меню
 SELECTED_WITHOUT_SEARCH = 1  # выбрано и поиск выключен
