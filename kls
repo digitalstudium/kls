@@ -147,7 +147,7 @@ def navigate_vertically(direction, menu):
     if not filtered_rows or len(filtered_rows) == 1: return  # если строк нет или строка одна, навигация не нужна
     increment = {"down": 1, "up": -1}
     menu.selected_row = (menu.selected_row + increment[direction]) % len(filtered_rows)  # выбираем строку учитывая сколько строк в меню
-    if menu != menu3:
+    if menu != menu3:  # перерисовываем третье меню, т. к. оно зависит от вертикальной навигации в меню 1 и 2
         update_menu3_object()
         draw_menu(menu3)
     draw_menu(menu)  # перерисовываем меню
@@ -161,12 +161,12 @@ def handle_selected_with_search_state(key_pressed, menu):
     elif key_pressed == "KEY_BACKSPACE":
         menu.state = SELECTED_WITHOUT_SEARCH if not menu.filter else menu.state
         menu.filter = menu.filter[:-1] if menu.filter else ""
-    elif key_pressed.isalpha() or key_pressed == "-":
+    elif key_pressed.isalpha() or key_pressed.isnumeric() or key_pressed == "-":
         menu.filter += key_pressed
         menu.selected_row = 0
     else:
         return
-    if menu != menu3:
+    if menu != menu3:  # перерисовываем третье меню, т. к. оно зависит от нажатия Esc/Backspace/etc. в меню 1 и 2
         update_menu3_object()
         draw_menu(menu3)
     draw_menu(menu)
