@@ -21,10 +21,10 @@ class Menu:
         self.selected_row = 0  # выбранная строка меню
         self.begin_x = begin_x  # где начинается меню по х?
         self.win = curses.newwin(curses.LINES, width, 0, begin_x)  # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
-        self.rows_number = curses.LINES - 10  # максимальное число видимых строк меню, начиная с 0
+        self.rows_number = curses.LINES - 7  # максимальное число видимых строк меню, начиная с 0
     @property
     def filtered_rows(self):
-        return list(filter(lambda x: (self.filter in x), self.rows))  # фильтрованные строки меню
+        return [x for x in self.rows if self.filter in x]
 
 
 def execute_cmd(command):
@@ -113,7 +113,7 @@ def run_command(key_pressed):
 
 
 def navigate_horizontally(direction, menu):
-    increment = {"right": 1, "left": -1}
+    increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}
     next_menu = menus[(menus.index(menu) + increment[direction]) % 3]
     menu.state = NOT_SELECTED_WITH_SEARCH if menu.filter else NOT_SELECTED_WITHOUT_SEARCH
     next_menu.state = SELECTED_WITH_SEARCH if next_menu.filter else SELECTED_WITHOUT_SEARCH
@@ -123,7 +123,7 @@ def navigate_horizontally(direction, menu):
 
 def navigate_vertically(direction, menu):
     if not menu.filtered_rows or len(menu.filtered_rows) == 1: return  # если строк нет или строка одна, навигация не нужна
-    increment = {"down": 1, "up": -1}
+    increment = {"KEY_DOWN": 1, "KEY_UP": -1}
     menu.selected_row = (menu.selected_row + increment[direction]) % len(menu.filtered_rows)  # выбираем строку учитывая сколько строк в меню
     if menu != menus[2]:  # перерисовываем третье меню, т. к. оно зависит от вертикальной навигации в меню 1 и 2
         update_menu3_object()
@@ -161,10 +161,8 @@ def handle_selected_without_search_state(key_pressed, menu):
 
 def catch_input(menu):
     key_pressed = screen.getkey()
-    if key_pressed == '\t' or key_pressed == "KEY_RIGHT": navigate_horizontally("right", menu)
-    elif key_pressed == "KEY_BTAB" or key_pressed == "KEY_LEFT": navigate_horizontally("left", menu)
-    elif key_pressed == "KEY_DOWN": navigate_vertically("down", menu)
-    elif key_pressed == "KEY_UP": navigate_vertically("up", menu)
+    if key_pressed in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]: navigate_horizontally(key_pressed, menu)
+    elif key_pressed in ["KEY_DOWN", "KEY_UP"]: navigate_vertically(key_pressed, menu)
     elif key_pressed in ["KEY_F(1)", "KEY_F(2)", "KEY_F(3)", "KEY_F(4)"]: run_command(key_pressed)
     elif menu.state == SELECTED_WITH_SEARCH: handle_selected_with_search_state(key_pressed, menu)
     elif menu.state == SELECTED_WITHOUT_SEARCH: handle_selected_without_search_state(key_pressed, menu)
