@@ -9,9 +9,10 @@ screen.keypad(True)  # нужно для работы с клавишами F1-F
 curses.curs_set(0)  # делаем курсор невидимым
 curses.noecho()  # не выводим символы вверху
 curses.start_color()  # инициализируем цвета
+curses.use_default_colors()  # для работы прозрачного фона
 if curses.has_colors():
     curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)  # белый на голубом - для заголовка
-    curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLACK)  # белый на чёрном - для остальных строк
+    curses.init_pair(2, curses.COLOR_WHITE, -1)  # белый на дефолтном - для остальных строк
 
 # состояния меню
 SELECTED_WITHOUT_SEARCH = 1  # выбрано и поиск выключен
@@ -41,10 +42,10 @@ menu1 = Menu("Namespaces", namespaces, 0, curses.COLS // 5, SELECTED_WITHOUT_SEA
 api_resources_top = ["pods", "services", "deployments", "statefulsets", "daemonsets", "ingresses", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "nodes", "storageclasses"]
 api_resources_kubectl = [i for i in subprocess.check_output("kubectl api-resources --no-headers --verbs get | awk '{print $1}'", shell=True).decode("utf-8").split("\n") if i]
 api_resources = api_resources_top + sorted(list(set(api_resources_kubectl) - set(api_resources_top)))
-menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 5, curses.COLS // 5 * 2, NOT_SELECTED_WITHOUT_SEARCH)
+menu2 = Menu("API resources", api_resources, 0 + curses.COLS // 5, curses.COLS // 10 * 3, NOT_SELECTED_WITHOUT_SEARCH)
 
 pods = [p for p in subprocess.check_output(f"kubectl get pods --no-headers -n {namespaces[0]} | awk '{{print $1}}'", shell=True).decode("utf-8").split("\n") if p]
-menu3 = Menu("Resources", pods, 0 + curses.COLS // 5 * 3, curses.COLS // 5 * 2, NOT_SELECTED_WITHOUT_SEARCH)
+menu3 = Menu("Resources", pods, 0 + curses.COLS // 2, curses.COLS // 2, NOT_SELECTED_WITHOUT_SEARCH)
 
 menus = [menu1, menu2, menu3]
 
