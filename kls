@@ -112,19 +112,19 @@ def run_command(key_pressed):
     draw_window()
 
 
-def navigate_horizontally(direction, menu):
+def navigate_horizontally(key_pressed, menu):
     increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}
-    next_menu = menus[(menus.index(menu) + increment[direction]) % 3]
+    next_menu = menus[(menus.index(menu) + increment[key_pressed]) % 3]
     menu.state = NOT_SELECTED_WITH_SEARCH if menu.filter else NOT_SELECTED_WITHOUT_SEARCH
     next_menu.state = SELECTED_WITH_SEARCH if next_menu.filter else SELECTED_WITHOUT_SEARCH
     draw_header(menu)  # убираем выделение с заголовка текущего меню
     draw_header(next_menu)  # выделяем заголовок следующего/предыдущего меню
 
 
-def navigate_vertically(direction, menu):
+def navigate_vertically(key_pressed, menu):
     if not menu.filtered_rows or len(menu.filtered_rows) == 1: return  # если строк нет или строка одна, навигация не нужна
     increment = {"KEY_DOWN": 1, "KEY_UP": -1}
-    menu.selected_row = (menu.selected_row + increment[direction]) % len(menu.filtered_rows)  # выбираем строку учитывая сколько строк в меню
+    menu.selected_row = (menu.selected_row + increment[key_pressed]) % len(menu.filtered_rows)  # выбираем строку учитывая сколько строк в меню
     if menu != menus[2]:  # перерисовываем третье меню, т. к. оно зависит от вертикальной навигации в меню 1 и 2
         update_menu3_object()
         draw_menu(menus[2])
