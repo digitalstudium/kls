@@ -2,8 +2,7 @@
 import curses
 import subprocess
 
-# инициализация экрана
-screen = curses.initscr()
+screen = curses.initscr()  # инициализация экрана
 screen.refresh()  # не знаю зачем это нужно но без этого не работает
 curses.set_escdelay(1) # в curses зачем-то сделали задержку на срабатывание Escape, уменьшаем её до 1 милисекунды (до 0 нельзя)
 screen.keypad(True)  # нужно для работы с клавишами F1-F4
@@ -19,6 +18,8 @@ SELECTED_WITHOUT_SEARCH = 1  # выбрано и поиск выключен
 SELECTED_WITH_SEARCH = 2  # выбрано и поиск включен
 NOT_SELECTED_WITHOUT_SEARCH = 3  # не выбрано и поиск выключен
 NOT_SELECTED_WITH_SEARCH = 4  # не выбрано и поиск включен
+
+state = "running"  # состояние программы
 
 
 class Menu:
@@ -141,12 +142,13 @@ def navigate_horizontally(direction, menu):
 
 
 def navigate_vertically(direction, menu):
-    filtered_rows = list(
-        filter(lambda x: (menu.filter in x), menu.rows))  # какие строки сейчас в меню, учитывая фильтр?
+    filtered_rows = list(filter(lambda x: (menu.filter in x), menu.rows))  # какие строки сейчас в меню, учитывая фильтр?
     if not filtered_rows or len(filtered_rows) == 1: return  # если строк нет или строка одна, навигация не нужна
     increment = {"down": 1, "up": -1}
-    menu.selected_row = (menu.selected_row + increment[direction]) % len(
-        filtered_rows)  # выбираем строку учитывая сколько строк в меню
+    menu.selected_row = (menu.selected_row + increment[direction]) % len(filtered_rows)  # выбираем строку учитывая сколько строк в меню
+    if menu != menu3:
+        update_menu3_object()
+        draw_menu(menu3)
     draw_menu(menu)  # перерисовываем меню
 
 
@@ -155,15 +157,18 @@ def handle_selected_with_search_state(key_pressed, menu):
         menu.filter = ""
         menu.selected_row = 0
         menu.state = SELECTED_WITHOUT_SEARCH
-        draw_menu(menu)
     elif key_pressed == "KEY_BACKSPACE":
         menu.state = SELECTED_WITHOUT_SEARCH if not menu.filter else menu.state
         menu.filter = menu.filter[:-1] if menu.filter else ""
-        draw_menu(menu)
     elif key_pressed.isalpha() or key_pressed == "-":
         menu.filter += key_pressed
         menu.selected_row = 0
-        draw_menu(menu)
+    else:
+        return
+    if menu != menu3:
+        update_menu3_object()
+        draw_menu(menu3)
+    draw_menu(menu)
 
 
 def handle_selected_without_search_state(key_pressed, menu):
@@ -171,7 +176,8 @@ def handle_selected_without_search_state(key_pressed, menu):
         menu.state = SELECTED_WITH_SEARCH
         draw_search_box(menu)
     elif key_pressed == "q":
-        return "interrupt"
+        global state
+        state = "interrupt"
 
 
 def catch_input(menu):
@@ -182,21 +188,14 @@ def catch_input(menu):
     elif key_pressed == "KEY_UP": navigate_vertically("up", menu)
     elif key_pressed in ["KEY_F(1)", "KEY_F(2)", "KEY_F(3)", "KEY_F(4)"]: run_command(key_pressed)
     elif menu.state == SELECTED_WITH_SEARCH: handle_selected_with_search_state(key_pressed, menu)
-    elif menu.state == SELECTED_WITHOUT_SEARCH:
-        result = handle_selected_without_search_state(key_pressed, menu)
-        if result:
-            return result
-    if menu != menu3 and key_pressed not in ["KEY_RIGHT", "KEY_LEFT", "\t", "KEY_BTAB", "/"]:
-        update_menu3_object()
-        draw_menu(menu3)
+    elif menu.state == SELECTED_WITHOUT_SEARCH: handle_selected_without_search_state(key_pressed, menu)
 
 
 def main():
     draw_window()  # рисуем начальный экран
-    state = "running"
-    while state != "interrupt":
+    while state == "running":
          for menu in menus:
-             if menu.state in [1, 2]: state = catch_input(menu)
+             if menu.state in [1, 2]: catch_input(menu)  # если меню выбрано, перехватываем ввод пользователя
 
 
 main()
