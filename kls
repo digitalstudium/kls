@@ -21,7 +21,7 @@ class Menu:
         self.selected_row = 0  # выбранная строка меню
         self.begin_x = begin_x  # где начинается меню по х?
         self.win = curses.newwin(curses.LINES - 3, width, 0, begin_x)  # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
-        self.rows_number = curses.LINES - 8  # максимальное число видимых строк меню, начиная с 0
+        self.rows_number = curses.LINES - 9  # максимальное число видимых строк меню, начиная с 0
     @property
     def filtered_rows(self):
         return [x for x in self.rows if self.filter in x]
