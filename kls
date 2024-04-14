@@ -12,6 +12,8 @@ SELECTED_WITHOUT_SEARCH, SELECTED_WITH_SEARCH, NOT_SELECTED_WITHOUT_SEARCH, NOT_
 STATE = "running"  # состояние программы
 
 
+help_win = curses.newwin(3, curses.COLS, curses.LINES - 3, 0) # окно помощи
+
 class Menu:
     def __init__(self, name, rows, begin_x, width, state):
         self.state = state  # состояние меню
@@ -20,8 +22,8 @@ class Menu:
         self.filter = ""  # фильтр строк меню
         self.selected_row = 0  # выбранная строка меню
         self.begin_x = begin_x  # где начинается меню по х?
-        self.win = curses.newwin(curses.LINES, width, 0, begin_x)  # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
-        self.rows_number = curses.LINES - 7  # максимальное число видимых строк меню, начиная с 0
+        self.win = curses.newwin(curses.LINES - 3, width, 0, begin_x)  # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
+        self.rows_number = curses.LINES - 10  # максимальное число видимых строк меню, начиная с 0
     @property
     def filtered_rows(self):
         return [x for x in self.rows if self.filter in x]
@@ -76,10 +78,17 @@ def draw_rows(menu):
 
 
 def draw_search_box(menu):
-    menu.win.addstr(curses.LINES - 2, 2, f"/{menu.filter}" if menu.state in [2, 4] else "Press / for search")  # рисуем контент
+    menu.win.addstr(curses.LINES - 5, 2, f"/{menu.filter}" if menu.state in [2, 4] else "Press / for search")  # рисуем контент
     menu.win.clrtoeol()  # очищаем остальную часть строки
     menu.win.box()  # рисуем рамку
     menu.win.refresh()  # обновляем окно
+
+
+def draw_help():
+    help = "q: exit, /: enter search mode, Esc: exit search mode, F1: get yaml, F2: describe, F3: edit, F4: pod logs"
+    help_win.addstr(1, 2, help)
+    help_win.box()  # рисуем рамку
+    help_win.refresh()  # обновляем окно
 
 
 def draw_menu(menu):
@@ -89,9 +98,10 @@ def draw_menu(menu):
     draw_search_box(menu)  # рисуем строку поиска
 
 
-def draw_window():
+def draw_windows():
     for menu in menus:
         draw_menu(menu)
+    draw_help()
 
 
 def run_command(key_pressed):
@@ -109,7 +119,7 @@ def run_command(key_pressed):
     curses.def_shell_mode()
     subprocess.call(commands[key_pressed], shell=True)
     curses.reset_shell_mode()
-    draw_window()
+    draw_windows()
 
 
 def navigate_horizontally(key_pressed, menu):
@@ -169,7 +179,7 @@ def catch_input(menu):
 
 
 def main():
-    draw_window()  # рисуем начальный экран
+    draw_windows()  # рисуем начальный экран
     while STATE == "running":
          for menu in menus:
              if menu.state in [1, 2]: catch_input(menu)  # если меню выбрано, перехватываем ввод пользователя
