@@ -10,9 +10,7 @@ curses.noecho()  # не выводим символы вверху
 
 SELECTED_WITHOUT_SEARCH, SELECTED_WITH_SEARCH, NOT_SELECTED_WITHOUT_SEARCH, NOT_SELECTED_WITH_SEARCH  = 1, 2, 3, 4  # состояния меню
 STATE = "running"  # состояние программы
-
-
-help_win = curses.newwin(3, curses.COLS, curses.LINES - 3, 0) # окно помощи
+HELP_WIN = curses.newwin(3, curses.COLS, curses.LINES - 3, 0) # окно помощи
 
 class Menu:
     def __init__(self, name, rows, begin_x, width, state):
@@ -84,13 +82,6 @@ def draw_search_box(menu):
     menu.win.refresh()  # обновляем окно
 
 
-def draw_help():
-    help = "q: exit, /: enter search mode, Esc: exit search mode, F1: get yaml, F2: describe, F3: edit, F4: pod logs"
-    help_win.addstr(1, 2, help)
-    help_win.box()  # рисуем рамку
-    help_win.refresh()  # обновляем окно
-
-
 def draw_menu(menu):
     menu.win.clear()  # очищаем окно меню
     draw_header(menu)  # рисуем заголовок
@@ -101,7 +92,10 @@ def draw_menu(menu):
 def draw_windows():
     for menu in menus:
         draw_menu(menu)
-    draw_help()
+    help_text = "q: exit, /: enter search mode, Esc: exit search mode, F1: get yaml, F2: describe, F3: edit, F4: pod logs"
+    HELP_WIN.addstr(1, 2, help_text)
+    HELP_WIN.box()  # рисуем рамку
+    HELP_WIN.refresh()  # обновляем окно
 
 
 def run_command(key_pressed):
