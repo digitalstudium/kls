@@ -21,7 +21,7 @@ class Menu:
         self.selected_row = 0  # выбранная строка меню
         self.begin_x = begin_x  # где начинается меню по х?
         self.win = curses.newwin(curses.LINES - 3, width, 0, begin_x)  # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
-        self.rows_number = curses.LINES - 10  # максимальное число видимых строк меню, начиная с 0
+        self.rows_number = curses.LINES - 8  # максимальное число видимых строк меню, начиная с 0
     @property
     def filtered_rows(self):
         return [x for x in self.rows if self.filter in x]
@@ -76,7 +76,7 @@ def draw_rows(menu):
 
 
 def draw_search_box(menu):
-    menu.win.addstr(curses.LINES - 5, 2, f"/{menu.filter}" if menu.state in [2, 4] else "Press / for search")  # рисуем контент
+    menu.win.addstr(curses.LINES - 5, 2, f"/{menu.filter}" if menu.state in [2, 4] else "")  # рисуем контент
     menu.win.clrtoeol()  # очищаем остальную часть строки
     menu.win.box()  # рисуем рамку
     menu.win.refresh()  # обновляем окно
@@ -92,7 +92,7 @@ def draw_menu(menu):
 def draw_windows():
     for menu in menus:
         draw_menu(menu)
-    help_text = "q: exit, /: enter search mode, Esc: exit search mode, F1: get yaml, F2: describe, F3: edit, F4: pod logs"
+    help_text = "q: exit, /: enter search mode, Esc: exit search mode, F1: get yaml, F2: describe, F3: edit, F4: pod logs, arrows/TAB: navigation"
     HELP_WIN.addstr(1, 2, help_text)
     HELP_WIN.box()  # рисуем рамку
     HELP_WIN.refresh()  # обновляем окно
