@@ -4,7 +4,7 @@ import curses, subprocess
 screen = curses.initscr()  # инициализация экрана
 screen.refresh()  # не знаю зачем это нужно но без этого не работает
 curses.set_escdelay(1) # в curses зачем-то сделали задержку на срабатывание Escape, уменьшаем её до 1 милисекунды (до 0 нельзя)
-screen.keypad(True)  # нужно для работы с клавишами F1-F4
+screen.keypad(True)  # нужно для работы со стрелками
 curses.curs_set(0)  # делаем курсор невидимым
 curses.noecho()  # не выводим символы вверху
 
@@ -92,7 +92,7 @@ def draw_menu(menu):
 def draw_windows():
     for menu in menus:
         draw_menu(menu)
-    help_text = "q: exit, /: enter search mode, Esc: exit search mode, F1: get yaml, F2: describe, F3: edit, F4: pod logs, arrows/TAB: navigation"
+    help_text = "q: exit, /: enter search mode, Esc: exit search mode, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
     HELP_WIN.addstr(1, 2, help_text)
     HELP_WIN.box()  # рисуем рамку
     HELP_WIN.refresh()  # обновляем окно
@@ -105,10 +105,10 @@ def run_command(key_pressed):
     namespace = menus[0].filtered_rows[menus[0].selected_row]
     resource = menus[2].rows[menus[2].selected_row]
     commands = {
-        "KEY_F(1)": f'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',
-        "KEY_F(2)": f'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers',
-        "KEY_F(3)": f'kubectl edit {api_resource} -n {namespace} {resource}',
-        "KEY_F(4)": f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'
+        "1": f'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',
+        "2": f'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers',
+        "3": f'kubectl edit {api_resource} -n {namespace} {resource}',
+        "4": f'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'
     }
     curses.def_shell_mode()
     subprocess.call(commands[key_pressed], shell=True)
@@ -140,11 +140,11 @@ def handle_selected_with_search_state(key_pressed, menu):
         menu.filter = ""
         menu.selected_row = 0
         menu.state = SELECTED_WITHOUT_SEARCH
-    elif key_pressed == "KEY_BACKSPACE":
+    elif key_pressed in ["KEY_BACKSPACE", "\x08"]:
         menu.state = SELECTED_WITHOUT_SEARCH if not menu.filter else menu.state
         menu.filter = menu.filter[:-1] if menu.filter else ""
-    elif key_pressed.isalpha() or key_pressed.isnumeric() or key_pressed == "-":
-        menu.filter += key_pressed
+    elif key_pressed.isalpha() or key_pressed == "-":
+        menu.filter += key_pressed.lower()
         menu.selected_row = 0
     else:
         return
@@ -158,7 +158,7 @@ def handle_selected_without_search_state(key_pressed, menu):
     if key_pressed == "/":
         menu.state = SELECTED_WITH_SEARCH
         draw_search_box(menu)
-    elif key_pressed == "q":
+    elif key_pressed.lower() == "q":
         global STATE
         STATE = "interrupt"
 
@@ -167,7 +167,7 @@ def catch_input(menu):
     key_pressed = screen.getkey()
     if key_pressed in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]: navigate_horizontally(key_pressed, menu)
     elif key_pressed in ["KEY_DOWN", "KEY_UP"]: navigate_vertically(key_pressed, menu)
-    elif key_pressed in ["KEY_F(1)", "KEY_F(2)", "KEY_F(3)", "KEY_F(4)"]: run_command(key_pressed)
+    elif key_pressed in ["1", "2", "3", "4"]: run_command(key_pressed)
     elif menu.state == SELECTED_WITH_SEARCH: handle_selected_with_search_state(key_pressed, menu)
     elif menu.state == SELECTED_WITHOUT_SEARCH: handle_selected_without_search_state(key_pressed, menu)
 
