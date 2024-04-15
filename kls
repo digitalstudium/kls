@@ -3,8 +3,8 @@ import curses, subprocess
 
 SCREEN = curses.initscr()  # инициализация экрана
 SELECTED, SELECTED_WITH_SEARCH, NOT_SELECTED, NOT_SELECTED_WITH_SEARCH  = 1, 2, 3, 4  # состояния меню
+INCREMENT = {"KEY_RIGHT": 1, "\t": 1, "KEY_DOWN": 1, "KEY_LEFT": -1, "KEY_BTAB": -1, "KEY_UP": -1}  # при нажатии этих кнопок прибавляем или отнимаем позицию?
 STATE = "running"  # состояние программы
-HELP_WIN = curses.newwin(3, curses.COLS, curses.LINES - 3, 0) # окно помощи
 
 SCREEN.refresh()  # не знаю зачем это нужно но без этого не работает
 SCREEN.keypad(True)  # нужно для работы со стрелками
@@ -27,23 +27,18 @@ class Menu:
         return [x for x in self.rows if self.filter in x]
 
 
-def execute_cmd(command):
-    return subprocess.check_output(command, shell=True).decode().strip().split()
-
-
-menus = [
-    Menu("Namespaces", [], 0, curses.COLS // 10 * 2, 1),
-    Menu("API resources", [], curses.COLS // 10 * 2, curses.COLS // 10 * 3, 3),
-    Menu("Resources", [], curses.COLS // 10 * 5, curses.COLS - curses.COLS // 10 * 5, 3)
-]
-menus[0].rows = execute_cmd("kubectl get ns --no-headers | awk '{print $1}'")
+execute_cmd = lambda command: subprocess.check_output(command, shell=True).decode().strip().split()
 api_resources_top = ["pods", "services", "deployments", "statefulsets", "daemonsets", "ingresses", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "nodes", "storageclasses"]
 api_resources_kubectl = execute_cmd("kubectl api-resources --no-headers --verbs=get | awk '{print $1}'")
-menus[1].rows = api_resources_top + sorted(list(set(api_resources_kubectl) - set(api_resources_top)))
+menus = [
+    Menu("Namespaces", execute_cmd("kubectl get ns --no-headers | awk '{print $1}'"), 0, curses.COLS // 10 * 2, 1),
+    Menu("API resources", api_resources_top + sorted(list(set(api_resources_kubectl) - set(api_resources_top))), curses.COLS // 10 * 2, curses.COLS // 10 * 3, 3),
+    Menu("Resources", [], curses.COLS // 10 * 5, curses.COLS - curses.COLS // 10 * 5, 3)
+]
 selected_namespace = lambda: menus[0].filtered_rows[menus[0].selected_row]
 selected_api_resource = lambda: menus[1].filtered_rows[menus[1].selected_row]
-menus[2].rows = execute_cmd(f"kubectl get {selected_api_resource()} --no-headers -n {selected_namespace()} | awk '{{print $1}}'")
 selected_resource = lambda: menus[2].rows[menus[2].selected_row]
+menus[2].rows = execute_cmd(f"kubectl get {selected_api_resource()} --no-headers -n {selected_namespace()} | awk '{{print $1}}'")
 
 
 def update_menu3(menu):
@@ -65,13 +60,10 @@ def draw_row(window, text, y, x, selected=False):
 
 def draw_body_rows(menu):
     if not menu.filtered_rows: return  # если строк нет, рисовать нечего
-    # ограничиваем число отфильтрованных строк высотой окна rows_number
     first_row_index = 0 if menu.selected_row < menu.rows_number else menu.selected_row - menu.rows_number + 1
     last_row_index = first_row_index + menu.rows_number
     selected_rows = menu.filtered_rows[first_row_index:last_row_index]  # выбираем, от/до какой cтроки списка будет меню
-    selected_row_index = menu.selected_row - first_row_index  # индекс выбранной строки в отфильтрованных строках
-#    if menus[1].selected_row != 0:  # debug
-#        raise ValueError(f"{len(filtered_rows)} {selected_row_index} {first_row_index} {last_row_index} {menu.rows_number}")
+    selected_row_index = menu.selected_row - first_row_index  # индекс выбранной строки в выбранных строках
     for index, row in enumerate(selected_rows):  # рисуем то, что отфильтровали
         draw_row(menu.win, row, index + 3, 2, selected=True if index == selected_row_index else False)
 
@@ -99,8 +91,7 @@ def run_command(key_pressed):
 
 
 def navigate_horizontally(key_pressed, menu):
-    increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}
-    next_menu = menus[(menus.index(menu) + increment[key_pressed]) % 3]
+    next_menu = menus[(menus.index(menu) + INCREMENT[key_pressed]) % 3]
     menu.state = NOT_SELECTED_WITH_SEARCH if menu.filter else NOT_SELECTED
     next_menu.state = SELECTED_WITH_SEARCH if next_menu.filter else SELECTED
     draw_row(menu.win, menu.name, 1, 2, selected=False)  # убираем выделение с заголовка текущего меню
@@ -109,8 +100,7 @@ def navigate_horizontally(key_pressed, menu):
 
 def navigate_vertically(key_pressed, menu):
     if not menu.filtered_rows or len(menu.filtered_rows) == 1: return  # если строк нет или строка одна, навигация не нужна
-    increment = {"KEY_DOWN": 1, "KEY_UP": -1}
-    menu.selected_row = (menu.selected_row + increment[key_pressed]) % len(menu.filtered_rows)  # выбираем строку учитывая сколько строк в меню
+    menu.selected_row = (menu.selected_row + INCREMENT[key_pressed]) % len(menu.filtered_rows)  # выбираем строку учитывая сколько строк в меню
     draw_menu(menu)  # перерисовываем меню
     update_menu3(menu)  # перерисовываем третье меню, т. к. оно зависит от вертикальной навигации в меню 1 и 2
 
@@ -145,9 +135,9 @@ def catch_input(menu):
 
 
 def main():
-    for menu in menus: draw_menu(menu)
+    for menu in menus: draw_menu(menu) # основные окна
     help_text = "q: exit, /: enter search mode, Esc: exit search mode, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
-    draw_row(HELP_WIN, help_text, 1, 2)
+    draw_row(curses.newwin(3, curses.COLS, curses.LINES - 3, 0), help_text, 1, 2)  # окно помощи
     while STATE == "running":
          for menu in menus:
              if menu.state in [1, 2]: catch_input(menu)  # если меню выбрано, перехватываем ввод пользователя
