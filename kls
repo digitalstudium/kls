@@ -86,9 +86,9 @@ def navigate_horizontally(key_pressed, menu):
 
 
 def navigate_vertically(key_pressed, menu):
-    if not menu.filtered_rows() or len(menu.filtered_rows()) == 1: return  # если строк нет или строка одна, навигация не нужна
-    menu.selected_row_index = (menu.selected_row_index + INCREMENT[key_pressed]) % len(menu.filtered_rows())  # выбираем строку учитывая сколько строк в меню
-    draw_menu(menu)  # перерисовываем меню
+    if len(menu.filtered_rows()) > 1:  # если строк нет или строка одна, навигация не нужна
+        menu.selected_row_index = (menu.selected_row_index + INCREMENT[key_pressed]) % len(menu.filtered_rows())  # выбираем строку учитывая сколько строк в меню
+        draw_menu(menu)  # перерисовываем меню
 
 
 def handle_selected_with_search_state(key_pressed, menu):
@@ -116,7 +116,7 @@ def catch_input(menu):
 def main():
     for menu in [menu0, menu1, menu2]: draw_menu(menu) # основные окна
     draw_row(curses.newwin(3, curses.COLS, curses.LINES - 3, 0), HELP_TEXT, 1, 2)  # окно помощи
-    while menu0.state in [1, 2] or menu1.state in [1, 2] or menu2.state in [1, 2]:
+    while any(menu.state in [1, 2] for menu in [menu0, menu1, menu2]):
          for menu in [menu0, menu1, menu2]:
              if menu.state in [1, 2]: catch_input(menu)  # если меню выбрано, перехватываем ввод пользователя
 
