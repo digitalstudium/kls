@@ -47,7 +47,7 @@ def draw_menu(menu):
     draw_row(menu.win, menu.name, 1, 2, selected=True if menu.state in [1, 2] else False)  # рисуем заголовок
     if menu.filtered_rows():  # рисуем строки меню. Если строк нет, рисовать нечего
         first_row_index = 0 if menu.selected_row_index < menu.rows_number else menu.selected_row_index - menu.rows_number + 1
-        selected_rows = menu.filtered_rows()[first_row_index:first_row_index + menu.rows_number]  # выбираем, от/до какой cтроки списка будет меню
+        selected_rows = menu.filtered_rows()[first_row_index:][:menu.rows_number]  # выбираем, от/до какой cтроки списка будет меню
         selected_row_index = menu.selected_row_index - first_row_index  # индекс выбранной строки в выбранных строках
         for index, row in enumerate(selected_rows):  # рисуем то, что отфильтровали
             draw_row(menu.win, row, index + 3, 2, selected=True if index == selected_row_index else False)
