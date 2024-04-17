@@ -33,7 +33,8 @@ def update_menu3():
     if not menu0.filtered_rows() or not menu1.filtered_rows(): menu2.rows = ["No namespace or API resource selected"]
     elif menu1.selected_row() == "pods": menu2.rows = execute_cmd(f"kubectl -n {menu0.selected_row()} get pods --no-headers | awk '{{ print $1, $3 }}'")
     else: menu2.rows = execute_cmd(f"kubectl -n {menu0.selected_row()} get {menu1.selected_row()} --no-headers | awk '{{print $1}}'")
-    if menu2.rows == ['']: menu2.rows = [f"No {menu1.selected_row()} found in {menu0.selected_row()} namespace."]
+    if menu0.selected_row() == "kube-public": raise ValueError(menu2.rows)
+    if not menu2.rows: menu2.rows = [f"No {menu1.selected_row()} found in {menu0.selected_row()} namespace."]
     menu2.selected_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
     draw_menu(menu2)
 
@@ -118,4 +119,3 @@ def main():
 
 try: main()
 finally: curses.endwin()  # нужно для нормальной работы терминала после выхода
-
