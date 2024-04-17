@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 import curses, subprocess
 
-SELECTED, SELECTED_WITH_SEARCH, NOT_SELECTED, NOT_SELECTED_WITH_SEARCH  = 1, 2, 3, 4  # состояния меню
+SELECTED, SELECTED_WITH_FILTER, NOT_SELECTED, NOT_SELECTED_WITH_FILTER  = 1, 2, 3, 4  # состояния меню
 INCREMENT = {"KEY_RIGHT": 1, "\t": 1, "KEY_DOWN": 1, "KEY_LEFT": -1, "KEY_BTAB": -1, "KEY_UP": -1}  # при нажатии этих кнопок прибавляем или отнимаем позицию?
-HELP_TEXT = "q: exit, /: enter search mode, Esc: exit search mode, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
-
+HELP_TEXT = "q: exit, /: enter filter mode, Esc: exit filter mode, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
 SCREEN = curses.initscr()  # инициализация экрана
-SCREEN.refresh()  # не знаю зачем это нужно но без этого не работает
-SCREEN.keypad(True)  # нужно для работы со стрелками
-curses.set_escdelay(1) # в curses зачем-то сделали задержку на срабатывание Escape, уменьшаем её до 1 милисекунды (до 0 нельзя)
-curses.curs_set(0)  # делаем курсор невидимым
-curses.noecho()  # не выводим символы вверху
+
 
 class Menu:
     def __init__(self, name, rows, begin_x, width, state):
@@ -31,14 +26,14 @@ api_resources_top = ["pods", "services", "deployments", "statefulsets", "daemons
 api_resources_kubectl = execute_cmd("kubectl api-resources --no-headers --verbs=get | awk '{print $1}'")
 menu0 = Menu("Namespaces", execute_cmd("kubectl get ns --no-headers | awk '{print $1}'"), 0, curses.COLS // 10 * 2, 1)
 menu1 = Menu("API resources", api_resources_top + sorted(list(set(api_resources_kubectl) - set(api_resources_top))), curses.COLS // 10 * 2, curses.COLS // 10 * 3, 3)
-menu2 = Menu("Resources", execute_cmd(f"kubectl get {menu1.selected_row()} --no-headers -n {menu0.selected_row()} | awk '{{print $1}}'"), curses.COLS // 10 * 5, curses.COLS - curses.COLS // 10 * 5, 3)
+menu2 = Menu("Resources", execute_cmd(f"kubectl -n {menu0.selected_row()} get {menu1.selected_row()} --no-headers | awk '{{print $1}}'"), curses.COLS // 10 * 5, curses.COLS - curses.COLS // 10 * 5, 3)
 
 
 def update_menu3():
     if not menu0.filtered_rows() or not menu1.filtered_rows(): menu2.rows = ["No namespace or API resource selected"]
-    else: menu2.rows = execute_cmd(f"kubectl get {menu1.selected_row()} --no-headers -n {menu0.selected_row()} | awk '{{print $1}}'")
+    else: menu2.rows = execute_cmd(f"kubectl -n {menu0.selected_row()} get {menu1.selected_row()} --no-headers | awk '{{print $1}}'")
     if not menu2.rows: menu2.rows = [f"No {menu1.selected_row()} found in {menu0.selected_row()} namespace."]
-    menu2.selected_row_index = 0
+    menu2.selected_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
     draw_menu(menu2)
 
 
@@ -47,21 +42,17 @@ def draw_row(window, text, y, x, selected=False):
     window.refresh()
 
 
-def draw_body_rows(menu):
-    first_row_index = 0 if menu.selected_row_index < menu.rows_number else menu.selected_row_index - menu.rows_number + 1
-    last_row_index = first_row_index + menu.rows_number
-    selected_rows = menu.filtered_rows()[first_row_index:last_row_index]  # выбираем, от/до какой cтроки списка будет меню
-    selected_row_index = menu.selected_row_index - first_row_index  # индекс выбранной строки в выбранных строках
-    for index, row in enumerate(selected_rows):  # рисуем то, что отфильтровали
-        draw_row(menu.win, row, index + 3, 2, selected=True if index == selected_row_index else False)
-
-
 def draw_menu(menu):
     menu.win.clear()  # очищаем окно меню
     draw_row(menu.win, menu.name, 1, 2, selected=True if menu.state in [1, 2] else False)  # рисуем заголовок
-    if menu.filtered_rows(): draw_body_rows(menu)  # рисуем строки меню. Если строк нет, рисовать нечего
+    if menu.filtered_rows():  # рисуем строки меню. Если строк нет, рисовать нечего
+        first_row_index = 0 if menu.selected_row_index < menu.rows_number else menu.selected_row_index - menu.rows_number + 1
+        selected_rows = menu.filtered_rows()[first_row_index:first_row_index + menu.rows_number]  # выбираем, от/до какой cтроки списка будет меню
+        selected_row_index = menu.selected_row_index - first_row_index  # индекс выбранной строки в выбранных строках
+        for index, row in enumerate(selected_rows):  # рисуем то, что отфильтровали
+            draw_row(menu.win, row, index + 3, 2, selected=True if index == selected_row_index else False)
     draw_row(menu.win, f"/{menu.filter}" if menu.state in [2, 4] else "", curses.LINES - 5, 2)  # рисуем строку поиска
-    if menu != menu2: update_menu3()  # перерисовываем третье меню, т. к. оно зависит от вертикальной навигации, нажатия Esc/Backspace/etc. в меню 1 и 2
+    if menu != menu2: update_menu3()  # перерисовываем третье меню, если мы перерисовали первое или второе меню
 
 
 def run_command(key_pressed):
@@ -79,23 +70,18 @@ def run_command(key_pressed):
 
 def navigate_horizontally(key_pressed, menu):
     next_menu = eval("menu" + str(([menu0, menu1, menu2].index(menu) + INCREMENT[key_pressed]) % 3))
-    menu.state = NOT_SELECTED_WITH_SEARCH if menu.filter else NOT_SELECTED
-    next_menu.state = SELECTED_WITH_SEARCH if next_menu.filter else SELECTED
+    menu.state = NOT_SELECTED_WITH_FILTER if menu.state == SELECTED_WITH_FILTER else NOT_SELECTED
+    next_menu.state = SELECTED_WITH_FILTER if next_menu.state == NOT_SELECTED_WITH_FILTER else SELECTED
     draw_row(menu.win, menu.name, 1, 2, selected=False)  # убираем выделение с заголовка текущего меню
     draw_row(next_menu.win, next_menu.name, 1, 2, selected=True)  # выделяем заголовок следующего/предыдущего меню
 
 
-def navigate_vertically(key_pressed, menu):
-    if len(menu.filtered_rows()) > 1:  # если строк нет или строка одна, навигация не нужна
-        menu.selected_row_index = (menu.selected_row_index + INCREMENT[key_pressed]) % len(menu.filtered_rows())  # выбираем строку учитывая сколько строк в меню
-        draw_menu(menu)  # перерисовываем меню
-
-
-def handle_selected_with_search_state(key_pressed, menu):
-    if key_pressed == "\x1b": menu.filter = ""  # Нажатие Escape выходит из режима поиска
-    elif key_pressed in ["KEY_BACKSPACE", "\x08"]: menu.filter = menu.filter[:-1]  # Нажатие Backspace удаляет символ
-    elif key_pressed.isalpha() or key_pressed == "-": menu.filter += key_pressed.lower()
-    else: return
+def handle_selected_with_filter_state(key_pressed, menu):
+    match key_pressed:
+        case "\x1b": menu.filter = ""  # Нажатие Escape выходит из режима поиска
+        case "KEY_BACKSPACE" | "\x08": menu.filter = menu.filter[:-1]  # Нажатие Backspace удаляет символ (\x08 это тоже Backspace)
+        case key_pressed if key_pressed.isalpha() or key_pressed == "-": menu.filter += key_pressed.lower()
+        case _: return
     menu.state = SELECTED if not menu.filter else menu.state
     menu.selected_row_index = 0
     draw_menu(menu)
@@ -103,20 +89,28 @@ def handle_selected_with_search_state(key_pressed, menu):
 
 def catch_input(menu):
     key_pressed = SCREEN.getkey()
-    if key_pressed.lower() == "q" and menu.state == SELECTED: menu.state = NOT_SELECTED # выход
-    elif key_pressed == "/" and menu.state == SELECTED:
-        menu.state = SELECTED_WITH_SEARCH
-        draw_row(menu.win, "/", curses.LINES - 5, 2)  # рисуем строку поиска
-    elif key_pressed in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]: navigate_horizontally(key_pressed, menu)
-    elif key_pressed in ["KEY_DOWN", "KEY_UP"]: navigate_vertically(key_pressed, menu)
-    elif key_pressed in ["1", "2", "3", "4"]: run_command(key_pressed)
-    elif menu.state == SELECTED_WITH_SEARCH: handle_selected_with_search_state(key_pressed, menu)
+    match key_pressed:  # сначала обрабатываем нажатия кнопок, не зависящие от состояния меню
+        case "\t"| "KEY_RIGHT" | "KEY_BTAB" | "KEY_LEFT": navigate_horizontally(key_pressed, menu)
+        case "KEY_DOWN" | "KEY_UP" if len(menu.filtered_rows()) > 1:
+            menu.selected_row_index = (menu.selected_row_index + INCREMENT[key_pressed]) % len(menu.filtered_rows())  # учитываем, сколько строк в меню
+            draw_menu(menu)  # перерисовываем меню
+        case "1" | "2" | "3" | "4": run_command(key_pressed)
+        case "q" | "Q" if menu.state == SELECTED: menu.state = NOT_SELECTED # выход
+        case "/" if menu.state == SELECTED:
+            menu.state = SELECTED_WITH_FILTER
+            draw_row(menu.win, "/", curses.LINES - 5, 2)  # рисуем строку поиска
+        case _ if menu.state == SELECTED_WITH_FILTER: handle_selected_with_filter_state(key_pressed, menu)
 
 
 def main():
-    for menu in [menu0, menu1, menu2]: draw_menu(menu) # основные окна
-    draw_row(curses.newwin(3, curses.COLS, curses.LINES - 3, 0), HELP_TEXT, 1, 2)  # окно помощи
-    while any(menu.state in [1, 2] for menu in [menu0, menu1, menu2]):
+    SCREEN.refresh()  # не знаю зачем это нужно но без этого не работает
+    SCREEN.keypad(True)  # нужно для работы со стрелками
+    curses.set_escdelay(1)  # в curses зачем-то сделали задержку на срабатывание Escape, уменьшаем её до 1 милисекунды (до 0 нельзя)
+    curses.curs_set(0)  # делаем курсор невидимым
+    curses.noecho()  # не выводим символы вверху
+    for menu in [menu0, menu1, menu2]: draw_menu(menu) # рисуем основные окна
+    draw_row(curses.newwin(3, curses.COLS, curses.LINES - 3, 0), HELP_TEXT, 1, 2)  # и окно помощи
+    while any(menu.state in [1, 2] for menu in [menu0, menu1, menu2]):  # пока выбрано хоть одно меню, продолжаем работу
          for menu in [menu0, menu1, menu2]:
              if menu.state in [1, 2]: catch_input(menu)  # если меню выбрано, перехватываем ввод пользователя
 
