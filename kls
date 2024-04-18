@@ -14,7 +14,7 @@ class Menu:
 
 SCREEN = curses.initscr()  # инициализация экрана
 execute_cmd = lambda command: subprocess.check_output(command, shell=True).decode().rstrip().split("\n")  # вывод команды преобразуем в list
-api_resources_top = ["pods", "services", "deployments", "statefulsets", "daemonsets", "ingresses", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "nodes", "storageclasses"]
+api_resources_top = ["pods", "services","ingresses", "deployments", "statefulsets", "daemonsets", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "nodes", "storageclasses"]
 api_resources_kubectl = execute_cmd("kubectl api-resources --no-headers --verbs=get | awk '{print $1}'")
 MENUS = [Menu("Namespaces", execute_cmd("kubectl get ns --no-headers | awk '{print $1}'"), 0, curses.COLS // 8),
         Menu("API resources", api_resources_top + sorted(list(set(api_resources_kubectl) - set(api_resources_top))), curses.COLS // 8, curses.COLS // 4),
@@ -27,6 +27,9 @@ ROWS_NUMBER = curses.LINES - 9  # максимальное число видим
 def update_menu3():
     if not MENUS[0].filtered_rows() or not MENUS[1].filtered_rows(): MENUS[2].rows = ["No namespace or API resource selected"]
     elif MENUS[1].selected_row() == "pods": MENUS[2].rows = execute_cmd(f"kubectl -n {MENUS[0].selected_row()} get pods -o wide --no-headers | awk '{{ printf \"%-65s %-16s %-10s\\n\", $1,$3,$(NF - 2) }}'")
+    elif MENUS[1].selected_row() == "persistentvolumeclaims": MENUS[2].rows = execute_cmd(f"kubectl -n {MENUS[0].selected_row()} get persistentvolumeclaims --no-headers | awk '{{ printf \"%-65s %-16s %-10s\\n\", $1,$4,$6 }}'")
+    elif MENUS[1].selected_row() == "services": MENUS[2].rows = execute_cmd(f"kubectl -n {MENUS[0].selected_row()} get svc --no-headers | awk '{{ printf \"%-65s %-12s %-15s\\n\", $1,$2,$3 }}'")
+    elif MENUS[1].selected_row() == "ingresses": MENUS[2].rows = execute_cmd(f"kubectl -n {MENUS[0].selected_row()} get ing --no-headers | awk '{{ printf \"%-65s %-25s\\n\", $1,$3 }}'")
     else: MENUS[2].rows = execute_cmd(f"kubectl -n {MENUS[0].selected_row()} get {MENUS[1].selected_row()} --no-headers | awk '{{printf \"%-85s\\n\", $1}}'")
     if MENUS[2].rows == ['']: MENUS[2].rows = [f"No {MENUS[1].selected_row()} found in {MENUS[0].selected_row()} namespace."]
     MENUS[2].selected_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
