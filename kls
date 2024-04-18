@@ -26,8 +26,8 @@ ROWS_NUMBER = curses.LINES - 9  # максимальное число видим
 
 def update_menu3():
     if not MENUS[0].filtered_rows() or not MENUS[1].filtered_rows(): MENUS[2].rows = ["No namespace or API resource selected"]
-    elif MENUS[1].selected_row() == "pods": MENUS[2].rows = execute_cmd(f"kubectl -n {MENUS[0].selected_row()} get pods --no-headers | awk '{{ printf \"%70s %10s\\n\", $1,$3 }}'")
-    else: MENUS[2].rows = execute_cmd(f"kubectl -n {MENUS[0].selected_row()} get {MENUS[1].selected_row()} --no-headers | awk '{{printf \"%80s\\n\", $1}}'")
+    elif MENUS[1].selected_row() == "pods": MENUS[2].rows = execute_cmd(f"kubectl -n {MENUS[0].selected_row()} get pods --no-headers | awk '{{ printf \"%-70s %-10s\\n\", $1,$3 }}'")
+    else: MENUS[2].rows = execute_cmd(f"kubectl -n {MENUS[0].selected_row()} get {MENUS[1].selected_row()} --no-headers | awk '{{printf \"%-80s\\n\", $1}}'")
     if MENUS[2].rows == ['']: MENUS[2].rows = [f"No {MENUS[1].selected_row()} found in {MENUS[0].selected_row()} namespace."]
     MENUS[2].selected_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
     draw_menu(MENUS[2])
