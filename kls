@@ -21,7 +21,7 @@ class Menu:
         self.rows_number = curses.LINES - 9  # максимальное число видимых строк меню, начиная с 0
 
 
-execute_cmd = lambda command: subprocess.check_output(command, shell=True).decode().strip().split("\n")  # вывод команды преобразуем в list
+execute_cmd = lambda command: subprocess.check_output(command, shell=True).decode().rstrip().split("\n")  # вывод команды преобразуем в list
 api_resources_top = ["pods", "services", "deployments", "statefulsets", "daemonsets", "ingresses", "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "nodes", "storageclasses"]
 api_resources_kubectl = execute_cmd("kubectl api-resources --no-headers --verbs=get | awk '{print $1}'")
 menu0 = Menu("Namespaces", execute_cmd("kubectl get ns --no-headers | awk '{print $1}'"), 0, curses.COLS // 10 * 2, 1)
@@ -31,7 +31,7 @@ menu2 = Menu("Resources", execute_cmd(f"kubectl -n {menu0.selected_row()} get {m
 
 def update_menu3():
     if not menu0.filtered_rows() or not menu1.filtered_rows(): menu2.rows = ["No namespace or API resource selected"]
-    elif menu1.selected_row() == "pods": menu2.rows = execute_cmd(f"kubectl -n {menu0.selected_row()} get pods --no-headers | awk '{{ print $1, $3 }}'")
+    elif menu1.selected_row() == "pods": menu2.rows = execute_cmd(f"kubectl -n {menu0.selected_row()} get pods --no-headers | awk '{{ printf \"%40s %20s\\n\", $1,$3 }}'")
     else: menu2.rows = execute_cmd(f"kubectl -n {menu0.selected_row()} get {menu1.selected_row()} --no-headers | awk '{{print $1}}'")
     if menu2.rows == ['']: menu2.rows = [f"No {menu1.selected_row()} found in {menu0.selected_row()} namespace."]
     menu2.selected_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
