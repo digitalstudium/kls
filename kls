@@ -19,13 +19,13 @@ kubectl = lambda command: subprocess.check_output("kubectl " + command, shell=Tr
 api_resources_top = ["pods", "services", "ingresses", "deployments", "statefulsets", "daemonsets", "configmaps",
                      "secrets", "persistentvolumes", "persistentvolumeclaims", "nodes", "storageclasses"]
 api_resources_kubectl = kubectl("api-resources --no-headers --verbs=get | awk '{print $1}'")
-api_resources = list(dict.fromkeys(api_resources_top + api_resources_kubectl))
+api_resources = list(dict.fromkeys(api_resources_top + api_resources_kubectl)) # так top api ресурсы будут вверху
 width_unit = curses.COLS // 8
 MENUS = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit),
          Menu("API resources", api_resources, width_unit, width_unit * 2),
          Menu("Resources", [], width_unit * 3, curses.COLS - width_unit * 3)]
 SELECTED_MENU = MENUS[0]
-HELP_TEXT = "q: exit, /: enter filter mode, Esc: exit filter mode, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
+HELP_TEXT = "Esc: exit filter mode or exit kls, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
 ROWS_NUMBER = curses.LINES - 9  # максимальное число видимых строк меню, начиная с 0
 namespace = lambda: MENUS[0].selected_row()
 api_resource = lambda: MENUS[1].selected_row()
@@ -33,16 +33,17 @@ resource = lambda: MENUS[2].selected_row().split()[0]
 
 
 def update_menu3():
-    if not MENUS[0].filtered_rows() or not MENUS[1].filtered_rows():
-        MENUS[2].rows = ["No namespace or API resource selected"]
-    else:
+    if MENUS[0].filtered_rows() and MENUS[1].filtered_rows():
         columns_dict = {"pods": 'NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName',
                         "services": 'NAME:.metadata.name,TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
                         "ingresses": 'NAME:.metadata.name,HOSTS:.spec.rules[*].host',
                         "persistentvolumeclaims": 'NAME:.metadata.name,SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'}
         columns = columns_dict.get(api_resource(), 'NAME:.metadata.name')
         MENUS[2].rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers -o custom-columns={columns}")
-    if MENUS[2].rows == ['']: MENUS[2].rows = [f"No {api_resource()} found in {namespace()} namespace."]
+        if MENUS[2].rows == ['']: 
+            MENUS[2].rows = [f"No {api_resource()} found in {namespace()} namespace."]
+    else:
+        MENUS[2].rows = [f"Select namespace or api resource"]
     MENUS[2].row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
     draw_menu(MENUS[2])
 
@@ -63,12 +64,13 @@ def draw_menu(menu):
         for index, row in enumerate(selected_rows):  # рисуем то, что отфильтровали
             draw_row(menu.win, row, index + 3, 2, selected=True if index == row_index else False)
     draw_row(menu.win, f"/{menu.filter}" if menu.filter else "", curses.LINES - 5, 2)  # рисуем строку поиска
-    if menu != MENUS[2]: update_menu3()  # перерисовываем третье меню, если мы перерисовали первое или второе меню
+    if menu != MENUS[2]:
+        update_menu3()  # перерисовываем третье меню, если мы перерисовали первое или второе меню
 
 
-def run_command(key_pressed):
-    if MENUS[2].filtered_rows()[0].startswith("No ") or (
-            key_pressed == "4" and api_resource() != "pods"): return
+def run_command(key):
+    if key == "4" and api_resource() != "pods":
+        return
     batcat_cmd = lambda lang: f'batcat -l {lang} --paging always --style numbers'
     commands = {
         "1": f'get {api_resource()} {resource()} -o yaml | {batcat_cmd("yaml")}',
@@ -77,47 +79,42 @@ def run_command(key_pressed):
         "4": f'logs {resource()} | {batcat_cmd("log")}'}
     curses.def_prog_mode()  # сохраняем преыдущее состояние терминала
     curses.endwin()  # без этого после выхода из vim начинаются проблемы
-    subprocess.call(f"kubectl -n {namespace()} " + commands[key_pressed], shell=True)
+    subprocess.call(f"kubectl -n {namespace()} " + commands[key], shell=True)
     curses.reset_prog_mode()  # восстанавливаем преыдущее состояние терминала
     SCREEN.refresh()
 
 
-def handle_selected_with_filter_state(key_pressed, menu):
-    match key_pressed:
-        case "\x1b":
-            menu.filter = ""  # Нажатие Escape выходит из режима поиска
-        case "KEY_BACKSPACE" | "\x08":
-            menu.filter = menu.filter[:-1]  # Нажатие Backspace удаляет символ (\x08 это тоже Backspace)
-        case key_pressed if key_pressed.isalpha() or key_pressed == "-":
-            menu.filter += key_pressed.lower()
-        case _:
-            return
+def handle_filter_state(key, menu):
+    if key == "\x1b":
+        menu.filter = ""  # Нажатие Escape выходит из режима поиска
+    elif key in ["KEY_BACKSPACE", "\x08"]:
+        menu.filter = menu.filter[:-1]  # Нажатие Backspace удаляет символ (\x08 это тоже Backspace)
+    elif key.isalpha() or key == "-":
+        menu.filter += key.lower()
+    else:
+        return
     menu.row_index = 0
     draw_menu(menu)
 
 
 def catch_input(menu):
-    key_pressed = SCREEN.getkey()
-    filter_mode = "/" in chr(menu.win.inch(curses.LINES - 5, 2))  # если слэш уже нарисован, значит мы в режиме фильтра
-    match key_pressed:
-        case "\t" | "KEY_RIGHT" | "KEY_BTAB" | "KEY_LEFT":
-            direction = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key_pressed]
-            next_menu = MENUS[(MENUS.index(menu) + direction) % 3]
-            draw_row(menu.win, menu.title, 1, 2, selected=False)  # убираем выделение с заголовка текущего меню
-            # и выделяем заголовок следующего/предыдущего меню
-            draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)
-            globals().update(SELECTED_MENU=next_menu)
-        case "KEY_DOWN" | "KEY_UP" if len(menu.filtered_rows()) > 1:
-            menu.row_index = (menu.row_index + {"KEY_DOWN": 1, "KEY_UP": -1}[key_pressed]) % len(menu.filtered_rows())
-            draw_menu(menu)  # перерисовываем меню
-        case "1" | "2" | "3" | "4" if MENUS[2].filtered_rows():
-            run_command(key_pressed)
-        case "q" | "Q" if not filter_mode:
-            globals().update(SELECTED_MENU=None)  # выход
-        case "/" if not filter_mode:
-            draw_row(menu.win, "/", curses.LINES - 5, 2)
-        case _ if filter_mode:
-            handle_selected_with_filter_state(key_pressed, menu)
+    key = SCREEN.getkey()
+    if key in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]:
+        direction = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
+        next_menu = MENUS[(MENUS.index(menu) + direction) % 3]
+        draw_row(menu.win, menu.title, 1, 2, selected=False)  # убираем выделение с заголовка текущего меню
+        # и выделяем заголовок следующего/предыдущего меню
+        draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)
+        globals().update(SELECTED_MENU=next_menu)
+    elif key in ["KEY_DOWN", "KEY_UP"] and len(menu.filtered_rows()) > 1:
+        menu.row_index = (menu.row_index + {"KEY_DOWN": 1, "KEY_UP": -1}[key]) % len(menu.filtered_rows())
+        draw_menu(menu)  # перерисовываем меню
+    elif key in ["1", "2", "3", "4"] and not resource().startswith("No "):
+        run_command(key)
+    elif key == "\x1b" and not menu.filter:
+        globals().update(SELECTED_MENU=None)  # выход
+    else:
+        handle_filter_state(key, menu)
 
 
 def main(screen):
@@ -136,3 +133,4 @@ def main(screen):
 
 
 curses.wrapper(main)
+
