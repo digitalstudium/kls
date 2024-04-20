@@ -38,21 +38,6 @@ api_resource = MENUS[1].selected_row
 resource = lambda: MENUS[2].selected_row().split()[0]
 
 
-def update_menu3():
-    if namespace() and api_resource():
-        columns_dict = {"pods": 'NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName',
-                        "services": 'NAME:.metadata.name,TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
-                        "ingresses": 'NAME:.metadata.name,HOSTS:.spec.rules[*].host',
-                        "persistentvolumeclaims": 'NAME:.metadata.name,SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'}
-        columns = columns_dict.get(api_resource(), 'NAME:.metadata.name')
-        MENUS[2].rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers -o custom-columns={columns}")
-        MENUS[2].rows = [x for x in MENUS[2].rows if x]  # это нужно для удаления пустых значений из листа
-    else:
-        MENUS[2].rows = []
-    MENUS[2].filtered_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
-    draw_menu(MENUS[2])
-
-
 def draw_row(window, text, y, x, selected=False):
     window.addstr(y, x, text, curses.A_REVERSE | curses.A_BOLD if selected else curses.A_NORMAL)
     window.clrtoeol()
@@ -69,6 +54,21 @@ def draw_menu(menu):
     draw_row(menu.win, menu.title, 1, 2, selected=True if menu == SELECTED_MENU else False)  # рисуем заголовок
     draw_rows(menu.visible_rows(), menu)  # рисуем строки меню
     draw_row(menu.win, f"/{menu.filter}" if menu.filter else "", curses.LINES - 5, 2)  # рисуем строку поиска
+
+
+def update_menu3():
+    if namespace() and api_resource():
+        columns_dict = {"pods": 'NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName',
+                        "services": 'NAME:.metadata.name,TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
+                        "ingresses": 'NAME:.metadata.name,HOSTS:.spec.rules[*].host',
+                        "persistentvolumeclaims": 'NAME:.metadata.name,SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'}
+        columns = columns_dict.get(api_resource(), 'NAME:.metadata.name')
+        MENUS[2].rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers -o custom-columns={columns}")
+        MENUS[2].rows = [x for x in MENUS[2].rows if x]  # это нужно для удаления пустых значений из листа
+    else:
+        MENUS[2].rows = []
+    MENUS[2].filtered_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
+    draw_menu(MENUS[2])
 
 
 def run_command(key):
