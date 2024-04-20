@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-import curses, subprocess
+import subprocess, curses
 
 
 class Menu:
     def __init__(self, title, rows, begin_x, width):
-        self.title, self.rows, self.filter = title, rows, ""  # заголовок, строки, фильтр меню
-        self.filtered_rows = lambda: [x for x in self.rows if self.filter in x]  # отфильтрованные строки меню
-        self.row_index = 0  # индекс выбранной строки меню
-        self.selected_row = lambda: self.filtered_rows()[self.row_index]  # выбранная строка меню
-        self.begin_x = begin_x  # где начинается меню по х?
-        # окно с высотой во весь экран, шириной width, и началом по х в точке begin_x
+        self.title = title
+        self.rows = rows  # все строки
+        self.filter = ""  # фильтр строк
+        self.filtered_rows = lambda: [x for x in self.rows if self.filter in x]  # фильтрованные строки
+        self.filtered_row_index = 0  # индекс выбранной строки фильтрованного меню
+        # __start_index - начиная с какой строки мы будем выбирать строки из filtered_rows()? Обычно с первой строки,
+        # но если размер filtered_rows больше HEIGHT и filtered_row_index выходит за границы высоты меню HEIGHT,
+        # сдвигаем __start_index вправо на filtered_row_index - HEIGHT. Таким образом реализуется прокрутка меню
+        self.__start_index = lambda: 0 if self.filtered_row_index < HEIGHT else self.filtered_row_index - HEIGHT + 1
+        self.visible_rows = lambda: self.filtered_rows()[self.__start_index():][:HEIGHT]  # видимые строки
+        self.__visible_row_index = lambda: self.filtered_row_index - self.__start_index()  # индекс выбранной строки видимого меню
+        # выбранная строка видимого меню
+        self.selected_row = lambda: self.visible_rows()[self.__visible_row_index()] if self.visible_rows() else None
         self.win = curses.newwin(curses.LINES - 3, width, 0, begin_x)
 
 
@@ -19,53 +26,50 @@ kubectl = lambda command: subprocess.check_output("kubectl " + command, shell=Tr
 api_resources_top = ["pods", "services", "ingresses", "deployments", "statefulsets", "daemonsets", "configmaps",
                      "secrets", "persistentvolumes", "persistentvolumeclaims", "nodes", "storageclasses"]
 api_resources_kubectl = kubectl("api-resources --no-headers --verbs=get | awk '{print $1}'")
-api_resources = list(dict.fromkeys(api_resources_top + api_resources_kubectl)) # так top api ресурсы будут вверху
+api_resources = list(dict.fromkeys(api_resources_top + api_resources_kubectl))  # так top api ресурсы будут вверху
 width_unit = curses.COLS // 8
 MENUS = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit),
          Menu("API resources", api_resources, width_unit, width_unit * 2),
          Menu("Resources", [], width_unit * 3, curses.COLS - width_unit * 3)]
 SELECTED_MENU = MENUS[0]
 HELP_TEXT = "Esc: exit filter mode or exit kls, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
-ROWS_NUMBER = curses.LINES - 9  # максимальное число видимых строк меню, начиная с 0
-namespace = lambda: MENUS[0].selected_row()
-api_resource = lambda: MENUS[1].selected_row()
+HEIGHT = curses.LINES - 9  # максимальное число видимых строк меню, начиная с
+namespace = MENUS[0].selected_row  # псеводним метода
+api_resource = MENUS[1].selected_row
 resource = lambda: MENUS[2].selected_row().split()[0]
 
 
 def update_menu3():
-    if MENUS[0].filtered_rows() and MENUS[1].filtered_rows():
+    if namespace() and api_resource():
         columns_dict = {"pods": 'NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName',
                         "services": 'NAME:.metadata.name,TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
                         "ingresses": 'NAME:.metadata.name,HOSTS:.spec.rules[*].host',
                         "persistentvolumeclaims": 'NAME:.metadata.name,SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'}
         columns = columns_dict.get(api_resource(), 'NAME:.metadata.name')
         MENUS[2].rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers -o custom-columns={columns}")
-        if MENUS[2].rows == ['']: 
-            MENUS[2].rows = [f"No {api_resource()} found in {namespace()} namespace."]
+        MENUS[2].rows = [x for x in MENUS[2].rows if x]  # это нужно для удаления пустых значений из листа
     else:
-        MENUS[2].rows = [f"Select namespace or api resource"]
-    MENUS[2].row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
+        MENUS[2].rows = []
+    MENUS[2].filtered_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
     draw_menu(MENUS[2])
 
 
 def draw_row(window, text, y, x, selected=False):
     window.addstr(y, x, text, curses.A_REVERSE | curses.A_BOLD if selected else curses.A_NORMAL)
+    window.clrtoeol()
     window.refresh()
+
+
+def draw_rows(rows, menu):
+    for index, row in enumerate(rows):
+        draw_row(menu.win, row, index + 3, 2, selected=True if row == menu.selected_row() else False)
 
 
 def draw_menu(menu):
     menu.win.clear()  # очищаем окно меню
     draw_row(menu.win, menu.title, 1, 2, selected=True if menu == SELECTED_MENU else False)  # рисуем заголовок
-    if menu.filtered_rows():  # рисуем строки меню. Если строк нет, рисовать нечего
-        first_row_index = 0 if menu.row_index < ROWS_NUMBER else menu.row_index - ROWS_NUMBER + 1
-        # выбираем, от/до какой cтроки списка будет меню
-        selected_rows = menu.filtered_rows()[first_row_index:][:ROWS_NUMBER]
-        row_index = menu.row_index - first_row_index  # индекс выбранной строки в выбранных строках
-        for index, row in enumerate(selected_rows):  # рисуем то, что отфильтровали
-            draw_row(menu.win, row, index + 3, 2, selected=True if index == row_index else False)
+    draw_rows(menu.visible_rows(), menu)  # рисуем строки меню
     draw_row(menu.win, f"/{menu.filter}" if menu.filter else "", curses.LINES - 5, 2)  # рисуем строку поиска
-    if menu != MENUS[2]:
-        update_menu3()  # перерисовываем третье меню, если мы перерисовали первое или второе меню
 
 
 def run_command(key):
@@ -93,23 +97,28 @@ def handle_filter_state(key, menu):
         menu.filter += key.lower()
     else:
         return
-    menu.row_index = 0
+    menu.filtered_row_index = 0
     draw_menu(menu)
+    if menu != MENUS[2]:
+        update_menu3()  # перерисовываем третье меню, если мы перерисовали первое или второе меню
 
 
 def catch_input(menu):
     key = SCREEN.getkey()
     if key in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]:
-        direction = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
-        next_menu = MENUS[(MENUS.index(menu) + direction) % 3]
+        increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
+        next_menu = MENUS[(MENUS.index(menu) + increment) % 3]
         draw_row(menu.win, menu.title, 1, 2, selected=False)  # убираем выделение с заголовка текущего меню
-        # и выделяем заголовок следующего/предыдущего меню
+        # и выделяем заголовок нового меню
         draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)
         globals().update(SELECTED_MENU=next_menu)
-    elif key in ["KEY_DOWN", "KEY_UP"] and len(menu.filtered_rows()) > 1:
-        menu.row_index = (menu.row_index + {"KEY_DOWN": 1, "KEY_UP": -1}[key]) % len(menu.filtered_rows())
-        draw_menu(menu)  # перерисовываем меню
-    elif key in ["1", "2", "3", "4"] and not resource().startswith("No "):
+    elif key in ["KEY_UP", "KEY_DOWN"] and len(menu.visible_rows()) > 1:
+        increment = {"KEY_DOWN": 1, "KEY_UP": -1}[key]
+        menu.filtered_row_index = (menu.filtered_row_index + increment) % len(menu.filtered_rows())
+        draw_rows(menu.visible_rows(), menu)  # перерисовываем меню
+        if menu != MENUS[2]:
+            update_menu3()  # перерисовываем строки третьего меню, если мы перерисовали строки первого или второго меню
+    elif key in ["1", "2", "3", "4"] and MENUS[2].selected_row():
         run_command(key)
     elif key == "\x1b" and not menu.filter:
         globals().update(SELECTED_MENU=None)  # выход
@@ -125,12 +134,12 @@ def main(screen):
     curses.curs_set(0)  # делаем курсор невидимым
     curses.use_default_colors()  # не меняем цвет терминала
     curses.noecho()  # не выводим символы вверху
-    for menu in MENUS:
-        draw_menu(menu)  # рисуем основные окна
+    draw_menu(MENUS[0])  # рисуем основные окна
+    draw_menu(MENUS[1])
+    update_menu3()
     draw_row(curses.newwin(3, curses.COLS, curses.LINES - 3, 0), HELP_TEXT, 1, 2)  # и окно помощи
     while SELECTED_MENU:
         catch_input(SELECTED_MENU)  # если какое-то меню выбрано, перехватываем ввод пользователя
 
 
 curses.wrapper(main)
-
