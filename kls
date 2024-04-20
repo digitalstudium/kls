@@ -57,34 +57,35 @@ def draw_menu(menu):
 
 
 def update_menu3():
+    MENUS[2].rows = []
     if namespace() and api_resource():
-        columns_dict = {"pods": 'NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName',
-                        "services": 'NAME:.metadata.name,TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
-                        "ingresses": 'NAME:.metadata.name,HOSTS:.spec.rules[*].host',
-                        "persistentvolumeclaims": 'NAME:.metadata.name,SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'}
-        columns = columns_dict.get(api_resource(), 'NAME:.metadata.name')
-        MENUS[2].rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers -o custom-columns={columns}")
-        MENUS[2].rows = [x for x in MENUS[2].rows if x]  # это нужно для удаления пустых значений из листа
-    else:
-        MENUS[2].rows = []
+        columns_dict = {
+            "pods": ',STATUS:.status.phase,NODE:.spec.nodeName',
+            "services": ',TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
+            "ingresses": ',HOSTS:.spec.rules[*].host',
+            "persistentvolumeclaims": ',SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'
+        }
+        columns = columns_dict.get(api_resource(), "")
+        command = f"-n {namespace()} get {api_resource()} --no-headers -o custom-columns=NAME:.metadata.name{columns}"
+        MENUS[2].rows = [x for x in kubectl(command) if x]  # это нужно для удаления пустых значений из листа
     MENUS[2].filtered_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
     draw_menu(MENUS[2])
 
 
 def run_command(key):
-    if key == "4" and api_resource() != "pods":
-        return
-    batcat_cmd = lambda lang: f'batcat -l {lang} --paging always --style numbers'
-    commands = {
-        "1": f'get {api_resource()} {resource()} -o yaml | {batcat_cmd("yaml")}',
-        "2": f'describe {api_resource()} {resource()} | {batcat_cmd("yaml")}',
-        "3": f'edit {api_resource()} {resource()}',
-        "4": f'logs {resource()} | {batcat_cmd("log")}'}
-    curses.def_prog_mode()  # сохраняем преыдущее состояние терминала
-    curses.endwin()  # без этого после выхода из vim начинаются проблемы
-    subprocess.call(f"kubectl -n {namespace()} " + commands[key], shell=True)
-    curses.reset_prog_mode()  # восстанавливаем преыдущее состояние терминала
-    SCREEN.refresh()
+    if not (key == "4" and api_resource() != "pods"):
+        batcat_cmd = 'batcat -l {lang} --paging always --style numbers'
+        commands = {
+            "1": f'get {api_resource()} {resource()} -o yaml | {batcat_cmd.format(lang="yaml")}',
+            "2": f'describe {api_resource()} {resource()} | {batcat_cmd.format(lang="yaml")}',
+            "3": f'edit {api_resource()} {resource()}',
+            "4": f'logs {resource()} | {batcat_cmd.format(lang="log")}'
+        }
+        curses.def_prog_mode()  # сохраняем преыдущее состояние терминала
+        curses.endwin()  # без этого после выхода из vim начинаются проблемы
+        subprocess.call(f"kubectl -n {namespace()} " + commands[key], shell=True)
+        curses.reset_prog_mode()  # восстанавливаем преыдущее состояние терминала
+        SCREEN.refresh()
 
 
 def handle_filter_state(key, menu):
