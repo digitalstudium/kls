@@ -8,15 +8,14 @@ class Menu:
         self.rows = rows  # все строки
         self.filter = ""  # фильтр строк
         self.filtered_rows = lambda: [x for x in self.rows if self.filter in x]  # фильтрованные строки
-        self.filtered_row_index = 0  # индекс выбранной строки фильтрованного меню
+        self.filtered_row_index = 0  # индекс выбранной строки из фильтрованных строк
         # __start_index - начиная с какой строки мы будем выбирать строки из filtered_rows()? Обычно с первой строки,
         # но если размер filtered_rows больше HEIGHT и filtered_row_index выходит за границы высоты меню HEIGHT,
         # сдвигаем __start_index вправо на filtered_row_index - HEIGHT. Таким образом реализуется прокрутка меню
         self.__start_index = lambda: 0 if self.filtered_row_index < HEIGHT else self.filtered_row_index - HEIGHT + 1
         self.visible_rows = lambda: self.filtered_rows()[self.__start_index():][:HEIGHT]  # видимые строки
-        self.__visible_row_index = lambda: self.filtered_row_index - self.__start_index()  # индекс выбранной строки видимого меню
-        # выбранная строка видимого меню
-        self.selected_row = lambda: self.visible_rows()[self.__visible_row_index()] if self.visible_rows() else None
+        self.__visible_row_index = lambda: self.filtered_row_index - self.__start_index()  # индекс выбранной строки из видимых строк
+        self.selected_row = lambda: self.visible_rows()[self.__visible_row_index()] if self.visible_rows() else None  # выбранная строка из видимых строк
         self.win = curses.newwin(curses.LINES - 3, width, 0, begin_x)
 
 
@@ -33,7 +32,7 @@ MENUS = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:
          Menu("Resources", [], width_unit * 3, curses.COLS - width_unit * 3)]
 SELECTED_MENU = MENUS[0]
 HELP_TEXT = "Esc: exit filter mode or exit kls, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
-HEIGHT = curses.LINES - 9  # максимальное число видимых строк меню, начиная с
+HEIGHT = curses.LINES - 9  # максимальное число индексов видимых строк
 namespace = MENUS[0].selected_row  # псеводним метода
 api_resource = MENUS[1].selected_row
 resource = lambda: MENUS[2].selected_row().split()[0]
@@ -100,7 +99,7 @@ def handle_filter_state(key, menu):
     menu.filtered_row_index = 0
     draw_menu(menu)
     if menu != MENUS[2]:
-        update_menu3()  # перерисовываем третье меню, если мы перерисовали первое или второе меню
+        update_menu3()  # перерисовываем строки третьего меню, если мы перерисовали строки первого или второго меню
 
 
 def catch_input(menu):
