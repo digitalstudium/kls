@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
 import subprocess, curses
 
+KEY_BINDINGS = {
+    "1": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',
+    "2": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers',
+    "3": 'kubectl -n {namespace} edit {api_resource} {resource}',
+    "4": 'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'
+}
+
+EXTRA_COLUMNS = {  # по умолчанию отображается только колонка NAME:.metadata.name
+    "pods": ',STATUS:.status.phase,NODE:.spec.nodeName',
+    "services": ',TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
+    "ingresses": ',HOSTS:.spec.rules[*].host',
+    "persistentvolumeclaims": ',SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'
+}
+
 
 class Menu:
     def __init__(self, title, rows, begin_x, width):
@@ -59,13 +73,7 @@ def draw_menu(menu):
 def update_menu3():
     MENUS[2].rows = []
     if namespace() and api_resource():
-        columns_dict = {
-            "pods": ',STATUS:.status.phase,NODE:.spec.nodeName',
-            "services": ',TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
-            "ingresses": ',HOSTS:.spec.rules[*].host',
-            "persistentvolumeclaims": ',SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'
-        }
-        columns = columns_dict.get(api_resource(), "")
+        columns = EXTRA_COLUMNS.get(api_resource(), "")
         command = f"-n {namespace()} get {api_resource()} --no-headers -o custom-columns=NAME:.metadata.name{columns}"
         MENUS[2].rows = [x for x in kubectl(command) if x]  # это нужно для удаления пустых значений из листа
     MENUS[2].filtered_row_index = 0  # перед перерисовкой сбрасываем выбранную строку на 0
@@ -74,16 +82,10 @@ def update_menu3():
 
 def run_command(key):
     if not (key == "4" and api_resource() != "pods"):
-        batcat_cmd = 'batcat -l {lang} --paging always --style numbers'
-        commands = {
-            "1": f'get {api_resource()} {resource()} -o yaml | {batcat_cmd.format(lang="yaml")}',
-            "2": f'describe {api_resource()} {resource()} | {batcat_cmd.format(lang="yaml")}',
-            "3": f'edit {api_resource()} {resource()}',
-            "4": f'logs {resource()} | {batcat_cmd.format(lang="log")}'
-        }
         curses.def_prog_mode()  # сохраняем преыдущее состояние терминала
         curses.endwin()  # без этого после выхода из vim начинаются проблемы
-        subprocess.call(f"kubectl -n {namespace()} " + commands[key], shell=True)
+        command = KEY_BINDINGS[key].format(namespace=namespace(), api_resource=api_resource(), resource=resource())
+        subprocess.call(command, shell=True)
         curses.reset_prog_mode()  # восстанавливаем преыдущее состояние терминала
         SCREEN.refresh()
 
@@ -118,7 +120,7 @@ def catch_input(menu):
         draw_rows(menu.visible_rows(), menu)  # перерисовываем меню
         if menu != MENUS[2]:
             update_menu3()  # перерисовываем строки третьего меню, если мы перерисовали строки первого или второго меню
-    elif key in ["1", "2", "3", "4"] and MENUS[2].selected_row():
+    elif key in KEY_BINDINGS.keys() and MENUS[2].selected_row():
         run_command(key)
     elif key == "\x1b" and not menu.filter:
         globals().update(SELECTED_MENU=None)  # выход

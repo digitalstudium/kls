@@ -1,13 +1,16 @@
 # KLS
 ## Description
-`kls` is a cli tool for managing kubernetes cluster resources. Inspired by `lf` and `ranger` file managers. Written on python curses.
-## Key bindings
+`kls` is a cli tool for managing kubernetes cluster resources. Inspired by `lf` and `ranger` file managers. 
+It is lightweight and easy to customize
+## Key bindings for kubectl
 - `1` - get yaml of resource
 - `2` - describe resource
 - `3` - edit resource 
 - `4` - logs of pod
-- `a-zA-Z` - filter menu
-- `Esc` - exit filter mode or exit `kls`
+
+You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` (in a row #4).
+
+Also you can add additional columns for different api resources in `EXTRA_COLUMNS` variable (in a row #11).
 
 ![kls in action](./images/kls.gif)
 ## Dependencies
