@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 import subprocess, curses
 
-KEY_BINDINGS = {
+KEY_BINDINGS = {  # can be extended
     "1": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',
     "2": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers',
     "3": 'kubectl -n {namespace} edit {api_resource} {resource}',
     "4": 'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers'
 }
 
-EXTRA_COLUMNS = {  # By default, only the NAME column is displayed:.metadata.name
+EXTRA_COLUMNS = {  # By default, only the NAME column is displayed. Any api resource can be added here
     "pods": ',STATUS:.status.phase,NODE:.spec.nodeName',
+    "nodes": ',STATUS:.status.conditions[-1].type,CAPACITY_CPU:.status.capacity.cpu,CAPACITY_MEM:.status.capacity.memory',
     "services": ',TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
     "ingresses": ',HOSTS:.spec.rules[*].host',
+    "deployments": ',DESIRED_REPLICAS:.spec.replicas,READY_REPLICAS:.status.readyReplicas',
     "persistentvolumeclaims": ',SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'
 }
+
+TOP_API_RESOURCES = ["pods", "services", "ingresses", "secrets", "nodes", "deployments", "statefulsets", "daemonsets",
+                     "configmaps", "persistentvolumeclaims", "storageclasses"]  # which api resources are on the top of menu?
+
+HELP_TEXT = "Esc: exit filter mode or exit kls, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
 
 
 class Menu:
@@ -35,17 +42,14 @@ class Menu:
 
 SCREEN = curses.initscr()  # screen initialization
 # convert command output to list
-kubectl = lambda command: subprocess.check_output("kubectl " + command, shell=True).decode().rstrip().split("\n")
-api_resources_top = ["pods", "services", "ingresses", "deployments", "statefulsets", "daemonsets", "configmaps",
-                     "secrets", "persistentvolumes", "persistentvolumeclaims", "nodes", "storageclasses"]
+kubectl = lambda command: subprocess.check_output("kubectl " + command, shell=True).decode().strip().split("\n")
 api_resources_kubectl = kubectl("api-resources --no-headers --verbs=get | awk '{print $1}'")
-api_resources = list(dict.fromkeys(api_resources_top + api_resources_kubectl))  # so top api resources are at the top
+api_resources = list(dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl))  # so top api resources are at the top
 width_unit = curses.COLS // 8
 MENUS = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit),
          Menu("API resources", api_resources, width_unit, width_unit * 2),
          Menu("Resources", [], width_unit * 3, curses.COLS - width_unit * 3)]
 SELECTED_MENU = MENUS[0]
-HELP_TEXT = "Esc: exit filter mode or exit kls, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
 HEIGHT = curses.LINES - 9  # maximum number of visible row indices
 namespace = MENUS[0].selected_row  # method alias
 api_resource = MENUS[1].selected_row
@@ -75,13 +79,13 @@ def update_menu3():
     if namespace() and api_resource():
         columns = EXTRA_COLUMNS.get(api_resource(), "")
         command = f"-n {namespace()} get {api_resource()} --no-headers -o custom-columns=NAME:.metadata.name{columns}"
-        MENUS[2].rows = [x for x in kubectl(command) if x]  # this is needed to remove empty values from the list
+        MENUS[2].rows = kubectl(command)
     MENUS[2].filtered_row_index = 0  # reset the selected row index before redrawing
     draw_menu(MENUS[2])
 
 
 def run_command(key):
-    if not (key == "4" and api_resource()!= "pods"):
+    if not (key == "4" and api_resource() != "pods"):
         curses.def_prog_mode()  # save the previous terminal state
         curses.endwin()  # without this, there are problems after exiting vim
         command = KEY_BINDINGS[key].format(namespace=namespace(), api_resource=api_resource(), resource=resource())
@@ -101,7 +105,7 @@ def handle_filter_state(key, menu):
         return
     menu.filtered_row_index = 0
     draw_menu(menu)
-    if menu!= MENUS[2]:
+    if menu != MENUS[2]:
         update_menu3()  # redraw the third menu rows if we redraw the first or second menu rows
 
 
@@ -118,7 +122,7 @@ def catch_input(menu):
         increment = {"KEY_DOWN": 1, "KEY_UP": -1}[key]
         menu.filtered_row_index = (menu.filtered_row_index + increment) % len(menu.filtered_rows())
         draw_rows(menu.visible_rows(), menu)  # redraw the menu
-        if menu!= MENUS[2]:
+        if menu != MENUS[2]:
             update_menu3()  # redraw the third menu rows if we redraw the first or second menu rows
     elif key in KEY_BINDINGS.keys() and MENUS[2].selected_row():
         run_command(key)
