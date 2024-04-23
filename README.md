@@ -7,10 +7,12 @@ It is lightweight and easy to customize
 - `2` - describe resource
 - `3` - edit resource 
 - `4` - logs of pod
+- `5` - exec to pod
+- `delete` - delete resource
 
 You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` (in a row #4).
 
-Also you can add additional columns for different api resources in `EXTRA_COLUMNS` variable (in a row #11).
+Also you can add additional columns for different api resources in `EXTRA_COLUMNS` variable (in a row #13).
 
 ![kls in action](./images/kls.gif)
 ## Dependencies
