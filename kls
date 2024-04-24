@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-import subprocess
-import curses
-import asyncio
+import subprocess, curses, asyncio
 
 KEY_BINDINGS = {  # can be extended
     "1": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',
@@ -12,8 +10,8 @@ KEY_BINDINGS = {  # can be extended
     "KEY_DC": 'kubectl -n {namespace} delete {api_resource} {resource}'  # KEY_DC is the delete key
 }
 # which api resources are on the top of menu?
-TOP_API_RESOURCES = ["pods", "services", "ingresses", "secrets", "nodes", "deployments", "statefulsets", "daemonsets",
-                     "configmaps", "persistentvolumeclaims", "storageclasses"]
+TOP_API_RESOURCES = ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "ingresses", "nodes",
+                     "deployments", "statefulsets", "daemonsets",  "storageclasses"]
 
 HELP_TEXT = "Esc: exit filter mode or exit kls, 1: get yaml, 2: describe, 3: edit, 4: pod logs, arrows/TAB: navigation"
 
