@@ -10,15 +10,6 @@ KEY_BINDINGS = {  # can be extended
     "KEY_DC": 'kubectl -n {namespace} delete {api_resource} {resource}'  # delete key
 }
 
-EXTRA_COLUMNS = {  # By default, only the NAME column is displayed. Any api resource can be added here
-    "pods": ',STATUS:.status.phase,NODE:.spec.nodeName,AGE:.metadata.creationTimestamp',
-    "nodes": ',STATUS:.status.conditions[-1].type,CAPACITY_CPU:.status.capacity.cpu,CAPACITY_MEM:.status.capacity.memory',
-    "services": ',TYPE:.spec.type,CLUSTER_IP:.spec.clusterIP',
-    "ingresses": ',HOSTS:.spec.rules[*].host',
-    "deployments": ',DESIRED_REPLICAS:.spec.replicas,READY_REPLICAS:.status.readyReplicas',
-    "persistentvolumeclaims": ',SIZE:.spec.resources.requests.storage,STORAGE_CLASS:.spec.storageClassName'
-}
-
 TOP_API_RESOURCES = ["pods", "services", "ingresses", "secrets", "nodes", "deployments", "statefulsets", "daemonsets",
                      "configmaps", "persistentvolumeclaims", "storageclasses"]  # which api resources are on the top of menu?
 
@@ -63,8 +54,7 @@ def draw_menu(menu: Menu):
 def update_menu3():
     MENUS[2].rows = []
     if namespace() and api_resource():
-        columns = EXTRA_COLUMNS.get(api_resource(), "")
-        command = f"-n {namespace()} get {api_resource()} --no-headers -o custom-columns=NAME:.metadata.name{columns}"
+        command = f"-n {namespace()} get {api_resource()} --no-headers"
         MENUS[2].rows = kubectl(command)
     MENUS[2].filtered_row_index = 0  # reset the selected row index before redrawing
     draw_menu(MENUS[2])
