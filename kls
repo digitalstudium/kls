@@ -7,6 +7,7 @@ KEY_BINDINGS = {  # can be extended
     "3": 'kubectl -n {namespace} edit {api_resource} {resource}',
     "4": 'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers',
     "5": 'kubectl -n {namespace} exec -it {resource} sh',
+    "6": 'kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot',
     "KEY_DC": 'kubectl -n {namespace} delete {api_resource} {resource}'  # KEY_DC is the delete key
 }
 # which api resources are on the top of menu?

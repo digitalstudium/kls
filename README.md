@@ -10,6 +10,7 @@ It is lightweight and easy to customize
 - `3` - edit resource 
 - `4` - logs of pod
 - `5` - exec to pod
+- `6` - network debug of pod (with nicolaka/netshoot container attached)
 - `delete` - delete resource
 
 You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` (in a row #6).
