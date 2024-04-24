@@ -12,7 +12,7 @@ It is lightweight and easy to customize
 - `5` - exec to pod
 - `delete` - delete resource
 
-You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` (in a row #4).
+You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` (in a row #6).
 
 ![kls in action](./images/kls.gif)
 
