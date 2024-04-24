@@ -7,7 +7,7 @@ KEY_BINDINGS = {  # can be extended
     "3": 'kubectl -n {namespace} edit {api_resource} {resource}',
     "4": 'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers',
     "5": 'kubectl -n {namespace} exec -it {resource} sh',
-    "KEY_DC": 'kubectl -n {namespace} delete {api_resource} {resource}'  # delete key
+    "KEY_DC": 'kubectl -n {namespace} delete {api_resource} {resource}'  # KEY_DC is the delete key
 }
 
 TOP_API_RESOURCES = ["pods", "services", "ingresses", "secrets", "nodes", "deployments", "statefulsets", "daemonsets",
@@ -113,7 +113,7 @@ def kubectl(command: str) -> list:
 
 
 SCREEN = curses.initscr()  # screen initialization
-api_resources_kubectl = kubectl("api-resources --no-headers --verbs=get | awk '{print $1}'")
+api_resources_kubectl = [x.split()[0] for x in kubectl("api-resources --no-headers --verbs=get")]
 api_resources = list(dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl))  # so top api resources are at the top
 width_unit = curses.COLS // 8
 MENUS = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit),
@@ -129,8 +129,7 @@ resource = lambda: MENUS[2].selected_row().split()[0]
 def main(screen):
     SCREEN.refresh()  # I don't know why this is needed but it doesn't work without it
     SCREEN.keypad(True)  # needed for arrow keys
-    # in curses, there is a delay on Escape key press, we reduce it to 1 millisecond (can't set it to 0)
-    curses.set_escdelay(1)
+    curses.set_escdelay(1)  # reduce Escape delay to 1 ms (curses can't set it to 0)
     curses.curs_set(0)  # make the cursor invisible
     curses.use_default_colors()  # don't change the terminal color
     curses.noecho()  # don't output characters at the top
