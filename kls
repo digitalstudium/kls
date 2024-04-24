@@ -54,7 +54,7 @@ def draw_menu(menu: Menu):
 
 
 def run_command(key: str):
-    if not (key == "4" and api_resource() != "pods") and not (key == "5" and api_resource() != "pods"):
+    if not (key in ("4","5","6") and api_resource() != "pods"):
         curses.def_prog_mode()  # save the previous terminal state
         curses.endwin()  # without this, there are problems after exiting vim
         command = KEY_BINDINGS[key].format(namespace=namespace(), api_resource=api_resource(), resource=resource())
