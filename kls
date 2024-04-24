@@ -26,7 +26,7 @@ HELP_TEXT = "Esc: exit filter mode or exit kls, 1: get yaml, 2: describe, 3: edi
 
 
 class Menu:
-    def __init__(self, title, rows, begin_x, width):
+    def __init__(self, title: str, rows: list, begin_x: int, width: int):
         self.title = title
         self.rows = rows  # all rows
         self.filter = ""  # filter for rows
@@ -42,34 +42,18 @@ class Menu:
         self.win = curses.newwin(curses.LINES - 3, width, 0, begin_x)
 
 
-SCREEN = curses.initscr()  # screen initialization
-# convert command output to list
-kubectl = lambda command: subprocess.check_output("kubectl " + command, shell=True).decode().strip().split("\n")
-api_resources_kubectl = kubectl("api-resources --no-headers --verbs=get | awk '{print $1}'")
-api_resources = list(dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl))  # so top api resources are at the top
-width_unit = curses.COLS // 8
-MENUS = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit),
-         Menu("API resources", api_resources, width_unit, width_unit * 2),
-         Menu("Resources", [], width_unit * 3, curses.COLS - width_unit * 3)]
-SELECTED_MENU = MENUS[0]
-HEIGHT = curses.LINES - 9  # maximum number of visible row indices
-namespace = MENUS[0].selected_row  # method alias
-api_resource = MENUS[1].selected_row
-resource = lambda: MENUS[2].selected_row().split()[0]
-
-
-def draw_row(window, text, y, x, selected=False):
+def draw_row(window: curses.window, text: str, y: int, x: int, selected: bool = False):
     window.addstr(y, x, text, curses.A_REVERSE | curses.A_BOLD if selected else curses.A_NORMAL)
     window.clrtoeol()
     window.refresh()
 
 
-def draw_rows(rows, menu):
+def draw_rows(rows: list, menu: Menu):
     for index, row in enumerate(rows):
         draw_row(menu.win, row, index + 3, 2, selected=True if row == menu.selected_row() else False)
 
 
-def draw_menu(menu):
+def draw_menu(menu: Menu):
     menu.win.clear()  # clear menu window
     draw_row(menu.win, menu.title, 1, 2, selected=True if menu == SELECTED_MENU else False)  # draw title
     draw_rows(menu.visible_rows(), menu)  # draw menu rows
@@ -86,7 +70,7 @@ def update_menu3():
     draw_menu(MENUS[2])
 
 
-def run_command(key):
+def run_command(key: str):
     if not (key == "4" and api_resource() != "pods") and not (key == "5" and api_resource() != "pods"):
         curses.def_prog_mode()  # save the previous terminal state
         curses.endwin()  # without this, there are problems after exiting vim
@@ -96,7 +80,7 @@ def run_command(key):
         SCREEN.refresh()
 
 
-def handle_filter_state(key, menu):
+def handle_filter_state(key: str, menu: Menu):
     if key == "\x1b":
         menu.filter = ""  # Escape key exits filter mode
     elif key in ["KEY_BACKSPACE", "\x08"]:
@@ -111,7 +95,7 @@ def handle_filter_state(key, menu):
         update_menu3()  # redraw the third menu rows if we redraw the first or second menu rows
 
 
-def catch_input(menu):
+def catch_input(menu: Menu):
     key = SCREEN.getkey()
     if key in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]:
         increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
@@ -132,6 +116,24 @@ def catch_input(menu):
         globals().update(SELECTED_MENU=None)  # exit
     else:
         handle_filter_state(key, menu)
+
+
+def kubectl(command: str) -> list:
+    return subprocess.check_output(f"kubectl {command}", shell=True).decode().strip().split("\n")
+
+
+SCREEN = curses.initscr()  # screen initialization
+api_resources_kubectl = kubectl("api-resources --no-headers --verbs=get | awk '{print $1}'")
+api_resources = list(dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl))  # so top api resources are at the top
+width_unit = curses.COLS // 8
+MENUS = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit),
+         Menu("API resources", api_resources, width_unit, width_unit * 2),
+         Menu("Resources", [], width_unit * 3, curses.COLS - width_unit * 3)]
+SELECTED_MENU = MENUS[0]
+HEIGHT = curses.LINES - 9  # maximum number of visible row indices
+namespace = MENUS[0].selected_row  # method alias
+api_resource = MENUS[1].selected_row
+resource = lambda: MENUS[2].selected_row().split()[0]
 
 
 def main(screen):
