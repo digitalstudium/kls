@@ -41,16 +41,23 @@ def draw_row(window: curses.window, text: str, y: int, x: int, selected: bool = 
     window.refresh()
 
 
-def draw_rows(rows: list, menu: Menu):
-    for index, row in enumerate(rows):
+def draw_rows(menu: Menu):
+    for index, row in enumerate(menu.visible_rows()):
         draw_row(menu.win, row, index + 3, 2, selected=True if row == menu.selected_row() else False)
 
 
 def draw_menu(menu: Menu):
     menu.win.clear()  # clear menu window
     draw_row(menu.win, menu.title, 1, 2, selected=True if menu == SELECTED_MENU else False)  # draw title
-    draw_rows(menu.visible_rows(), menu)  # draw menu rows
+    draw_rows(menu)  # draw menu rows
     draw_row(menu.win, f"/{menu.filter}" if menu.filter else "", curses.LINES - 5, 2)  # draw filter row
+
+
+def refresh_third_menu():
+    MENUS[2].rows = []
+    if api_resource() and namespace():
+        MENUS[2].rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers --ignore-not-found")
+    draw_menu(MENUS[2])
 
 
 def run_command(key: str):
@@ -79,28 +86,23 @@ def handle_filter_state(key: str, menu: Menu):
 
 
 async def catch_input(menu: Menu):
-    while True:  # this while loop is needed for constant refreshing of third menu containing all resources
+    while True:  # refresh third menu until key pressed
         try:
             key = SCREEN.getkey()
             break
-        except:
-            MENUS[2].rows = []
-            if namespace() and api_resource():
-                command = f"-n {namespace()} get {api_resource()} --no-headers"
-                MENUS[2].rows = kubectl(command)
-            draw_menu(MENUS[2])
+        except curses.error:
+            refresh_third_menu()
             await asyncio.sleep(0.1)
     if key in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]:
         increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
         next_menu = MENUS[(MENUS.index(menu) + increment) % 3]
         draw_row(menu.win, menu.title, 1, 2, selected=False)  # remove selection from the current menu title
-        # and select the new menu title
-        draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)
+        draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)  # and select the new menu title
         globals().update(SELECTED_MENU=next_menu)
     elif key in ["KEY_UP", "KEY_DOWN"] and len(menu.visible_rows()) > 1:
         increment = {"KEY_DOWN": 1, "KEY_UP": -1}[key]
         menu.filtered_row_index = (menu.filtered_row_index + increment) % len(menu.filtered_rows())
-        draw_rows(menu.visible_rows(), menu)  # redraw the menu
+        draw_rows(menu)  # this will change selected row in menu
         if menu != MENUS[2]:
             MENUS[2].filtered_row_index = 0  # reset the selected row index of third menu before redrawing
     elif key in KEY_BINDINGS.keys() and MENUS[2].selected_row():
@@ -131,14 +133,14 @@ resource = lambda: MENUS[2].selected_row().split()[0]
 
 def main(screen):
     SCREEN.refresh()  # I don't know why this is needed but it doesn't work without it
-    SCREEN.nodelay(True)  # don't wait for input
+    SCREEN.nodelay(True)  # don't block while waiting for input
     SCREEN.keypad(True)  # needed for arrow keys
     curses.set_escdelay(1)  # reduce Escape delay to 1 ms (curses can't set it to 0)
     curses.curs_set(0)  # make the cursor invisible
     curses.use_default_colors()  # don't change the terminal color
     curses.noecho()  # don't output characters at the top
-    draw_menu(MENUS[0])  # draw the main windows
-    draw_menu(MENUS[1])
+    for menu in MENUS:  # draw the main windows
+        draw_menu(menu)
     draw_row(curses.newwin(3, curses.COLS, curses.LINES - 3, 0), HELP_TEXT, 1, 2)  # and the help window
     while SELECTED_MENU:
         asyncio.run(catch_input(SELECTED_MENU))  # if a menu is selected, catch user input
