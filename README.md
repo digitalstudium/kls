@@ -2,7 +2,7 @@
 
 ## Description
 `kls` is a cli tool for managing kubernetes cluster resources. Inspired by `lf` and `ranger` file managers. 
-It is lightweight and easy to customize
+It is lightweight and easy to customize. Supports mouse navigation as well as keyboard navigation.
 
 ## Key bindings for kubectl
 - `1` - get yaml of resource
