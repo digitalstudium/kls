@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import subprocess, curses, asyncio
+import subprocess, curses, time
 
 KEY_BINDINGS = {  # can be extended
     "1": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',
@@ -85,14 +85,14 @@ def handle_filter_state(key: str, menu: Menu):
         MENUS[2].filtered_row_index = 0  # reset the selected row index of third menu before redrawing
 
 
-async def catch_input(menu: Menu):
+def catch_input(menu: Menu):
     while True:  # refresh third menu until key pressed
         try:
             key = SCREEN.getkey()
             break
         except curses.error:
             refresh_third_menu()
-            await asyncio.sleep(0.1)
+            time.sleep(0.1)
     if key in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]:
         increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
         next_menu = MENUS[(MENUS.index(menu) + increment) % 3]
@@ -143,7 +143,7 @@ def main(screen):
         draw_menu(menu)
     draw_row(curses.newwin(3, curses.COLS, curses.LINES - 3, 0), HELP_TEXT, 1, 2)  # and the help window
     while SELECTED_MENU:
-        asyncio.run(catch_input(SELECTED_MENU))  # if a menu is selected, catch user input
+        catch_input(SELECTED_MENU)  # if a menu is selected, catch user input
 
 
 curses.wrapper(main)
