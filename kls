@@ -26,21 +26,44 @@ ROWS_HEIGHT = curses.LINES - HEADER_HEIGHT - FOOTER_HEIGHT - 3   # maximum numbe
 WIDTH = curses.COLS
 
 
+class CircularList:
+    def __init__(self, elements):
+        self.elements = elements
+        self.size = len(elements)
+        self.index = 0
+
+    def __getitem__(self, index):
+        if isinstance(index, int):
+            return self.elements[(self.index + index) % self.size]
+        elif isinstance(index, slice):
+            start, stop, step = index.indices(self.size)
+            return [self.elements[(self.index + i) % self.size] for i in range(start, stop, step)]
+        else:
+            raise TypeError("Invalid index type")
+
+    def __len__(self):
+        return self.size        
+
+    def forward(self, steps):
+        self.index = (self.index + steps) % self.size
+
+    def backward(self, steps):
+        self.index = (self.index - steps) % self.size
+
+    def __str__(self):
+        return str(self.elements)
+
+
 class Menu:
     def __init__(self, title: str, rows: list, begin_x: int, width: int):
         self.title = title
         self.rows = rows  # all rows
         self.filter = ""  # filter for rows
-        self.filtered_rows = lambda: [x for x in self.rows if self.filter in x]  # filtered rows
-        self.filtered_row_index = 0  # index of the selected filtered row
-        # __start_index - starting from which row we will select rows from filtered_rows()? Usually from the first row,
-        # but if the size of filtered_rows is greater than HEIGHT and filtered_row_index exceeds the menu HEIGHT,
-        # we shift __start_index to the right by filtered_row_index - HEIGHT. This way we implement menu scrolling
-        self.__start_index = lambda: 0 if self.filtered_row_index < ROWS_HEIGHT else self.filtered_row_index - ROWS_HEIGHT + 1
-        self.visible_rows = lambda: self.filtered_rows()[self.__start_index():][:ROWS_HEIGHT]  # visible rows
-        self.__visible_row_index = lambda: self.filtered_row_index - self.__start_index()  # index of the selected visible row
+        self.filtered_rows = CircularList([x for x in self.rows if self.filter in x])  # filtered rows
+        self.visible_rows = lambda: self.filtered_rows[:ROWS_HEIGHT]  # visible rows
+        self.visible_row_index = 0  # index of the selected visible row
         # selected row from visible rows
-        self.selected_row = lambda: self.visible_rows()[self.__visible_row_index()] if self.visible_rows() else None
+        self.selected_row = lambda: self.visible_rows()[self.visible_row_index] if self.visible_rows() else None
         self.width = width
         self.begin_x = begin_x
         self.win = curses.newwin(curses.LINES - FOOTER_HEIGHT, width, 0, begin_x)
@@ -65,10 +88,14 @@ def draw_menu(menu: Menu):
 
 
 def refresh_third_menu():
-    MENUS[2].rows = []
+    menu = MENUS[2]
+    menu.rows = []
     if api_resource() and namespace():
-        MENUS[2].rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers --ignore-not-found")
-    draw_menu(MENUS[2])
+        menu.rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers --ignore-not-found")
+    menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # filtered rows
+    if 1 + menu.visible_row_index > len(menu.visible_rows()):
+        menu.visible_row_index = 0
+    draw_menu(menu)
 
 
 def run_command(key: str, api_resource: str, resource: str):
@@ -96,10 +123,11 @@ def handle_filter_state(key: str, menu: Menu):
         menu.filter += key.lower()
     else:
         return
-    menu.filtered_row_index = 0
+    menu.visible_row_index = 0
+    menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # filtered rows
     draw_menu(menu)
     if menu != MENUS[2]:
-        MENUS[2].filtered_row_index = 0  # reset the selected row index of third menu before redrawing
+        MENUS[2].visible_row_index = 0  # reset the visible row index of third menu before redrawing
 
 
 def handle_mouse(mouse_info: tuple, menu: Menu):
@@ -125,10 +153,10 @@ def handle_mouse(mouse_info: tuple, menu: Menu):
     if not char_str or ord(char_str) > 127 or ' ' in char_str:
         return
     if 0 <= row_number < len(menu.visible_rows()):
-        menu.filtered_row_index = row_number
+        menu.visible_row_index = row_number
         draw_rows(menu)  # this will change selected row in menu
         if menu != MENUS[2]:
-            MENUS[2].filtered_row_index = 0  # reset the selected row index of third menu before redrawing
+            MENUS[2].visible_row_index = 0  # reset the selected row index of third menu before redrawing
 
 
 def catch_input(menu: Menu):
@@ -145,15 +173,28 @@ def catch_input(menu: Menu):
         draw_row(menu.win, menu.title, 1, 2, selected=False)  # remove selection from the current menu title
         draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)  # and select the new menu title
         globals().update(SELECTED_MENU=next_menu)
-    elif key in ["KEY_UP", "KEY_DOWN"] and len(menu.visible_rows()) > 1:
-        increment = {"KEY_DOWN": 1, "KEY_UP": -1}[key]
-        menu.filtered_row_index = (menu.filtered_row_index + increment) % len(menu.filtered_rows())
+    elif key == "KEY_DOWN" and len(menu.visible_rows()) > 1:
+        if (menu.visible_row_index + 1) == ROWS_HEIGHT and len(menu.filtered_rows) > ROWS_HEIGHT:
+            menu.filtered_rows.forward(1)
+        else:
+            menu.visible_row_index = (menu.visible_row_index + 1) % len(menu.filtered_rows)  # index of the selected visible row
         draw_rows(menu)  # this will change selected row in menu
         if menu != MENUS[2]:
-            MENUS[2].filtered_row_index = 0  # reset the selected row index of third menu before redrawing
+            MENUS[2].visible_row_index = 0
+    elif key == "KEY_UP" and len(menu.visible_rows()) > 1:
+        if menu.visible_row_index == 0 and len(menu.filtered_rows) > ROWS_HEIGHT:
+            menu.filtered_rows.backward(1)
+        else:
+            menu.visible_row_index = (menu.visible_row_index - 1) % len(menu.filtered_rows)  # index of the selected visible row
+        draw_rows(menu)  # this will change selected row in menu
+        if menu != MENUS[2]:
+            MENUS[2].visible_row_index = 0
     elif key == "KEY_MOUSE" and MOUSE_ENABLED:
-        mouse_info = curses.getmouse()
-        handle_mouse(mouse_info, menu)
+        try:
+            mouse_info = curses.getmouse()
+            handle_mouse(mouse_info, menu)
+        except curses.error:  # this fixes scrolling
+            pass
     elif key in KEY_BINDINGS.keys() and MENUS[2].selected_row():
         run_command(key, api_resource(), resource())
     elif key == "\x1b" and not menu.filter:
