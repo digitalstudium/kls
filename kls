@@ -93,7 +93,7 @@ def refresh_third_menu():
     if api_resource() and namespace():
         menu.rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers --ignore-not-found")
     menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # filtered rows
-    if 1 + menu.visible_row_index > len(menu.visible_rows()):
+    if menu.visible_row_index >= len(menu.visible_rows()):
         menu.visible_row_index = 0
     draw_menu(menu)
 
@@ -159,13 +159,13 @@ def handle_mouse(mouse_info: tuple, menu: Menu):
             MENUS[2].visible_row_index = 0  # reset the selected row index of third menu before redrawing
 
 
-def handle_vertical_arrows(key, menu):
-    if key == "KEY_DOWN" and len(menu.visible_rows()) > 1:
+def handle_vertical_arrows(key: str, menu: Menu):
+    if key == "KEY_DOWN":
         if (menu.visible_row_index + 1) == ROWS_HEIGHT and len(menu.filtered_rows) > ROWS_HEIGHT:
             menu.filtered_rows.forward(1)
         else:
             menu.visible_row_index = (menu.visible_row_index + 1) % len(menu.filtered_rows)  # index of the selected visible row
-    elif key == "KEY_UP" and len(menu.visible_rows()) > 1:
+    elif key == "KEY_UP":
         if menu.visible_row_index == 0 and len(menu.filtered_rows) > ROWS_HEIGHT:
             menu.filtered_rows.backward(1)
         else:
