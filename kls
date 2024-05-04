@@ -74,13 +74,13 @@ def draw_rows(menu: Menu):
 
 def draw_menu(menu: Menu):
     menu.win.clear()  # clear menu window
-    draw_row(menu.win, menu.title, 1, 2, selected=True if menu == SELECTED_MENU else False)  # draw title
+    draw_row(menu.win, menu.title, 1, 2, selected=True if menu == selected_menu else False)  # draw title
     draw_rows(menu)  # draw menu rows
     draw_row(menu.win, f"/{menu.filter}" if menu.filter else "", curses.LINES - FOOTER_HEIGHT - 2, 2)  # draw filter row
 
 
 def refresh_third_menu():
-    menu = MENUS[2]
+    menu = menus[2]
     menu.rows = []
     if api_resource() and namespace():
         menu.rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers --ignore-not-found")
@@ -120,8 +120,8 @@ def handle_filter_state(key: str, menu: Menu):
     menu.visible_row_index = 0
     menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
     draw_menu(menu)
-    if menu != MENUS[2]:
-        MENUS[2].visible_row_index = 0  # reset the visible row index of third menu before redrawing
+    if menu != menus[2]:
+        menus[2].visible_row_index = 0  # reset the visible row index of third menu before redrawing
 
 
 def handle_mouse(mouse_info: tuple, menu: Menu):
@@ -129,15 +129,15 @@ def handle_mouse(mouse_info: tuple, menu: Menu):
     column_number = mouse_info[1]
     next_menu = None
     if column_number > (menu.begin_x + menu.width):
-        next_menu = MENUS[(MENUS.index(menu) + 1) % 3]
+        next_menu = menus[(menus.index(menu) + 1) % 3]
         if column_number > (next_menu.begin_x + next_menu.width):
-            next_menu = MENUS[(MENUS.index(next_menu) + 1) % 3]
-        globals().update(SELECTED_MENU=next_menu)
+            next_menu = menus[(menus.index(next_menu) + 1) % 3]
+        globals().update(selected_menu=next_menu)
     elif column_number < menu.begin_x:
-        next_menu = MENUS[(MENUS.index(menu) - 1) % 3]
+        next_menu = menus[(menus.index(menu) - 1) % 3]
         if column_number < next_menu.begin_x:
-            next_menu = MENUS[(MENUS.index(next_menu) - 1) % 3]
-        globals().update(SELECTED_MENU=next_menu)
+            next_menu = menus[(menus.index(next_menu) - 1) % 3]
+        globals().update(selected_menu=next_menu)
     if next_menu:
         draw_row(menu.win, menu.title, 1, 2, selected=False)  # remove selection from the current menu title
         draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)  # and select the new menu title
@@ -149,14 +149,12 @@ def handle_mouse(mouse_info: tuple, menu: Menu):
     if 0 <= row_number < len(menu.visible_rows()):
         menu.visible_row_index = row_number
         draw_rows(menu)  # this will change selected row in menu
-        if menu != MENUS[2]:
-            MENUS[2].visible_row_index = 0  # reset the selected row index of third menu before redrawing
+        if menu != menus[2]:
+            menus[2].visible_row_index = 0  # reset the selected row index of third menu before redrawing
 
 
-def handle_vertical_arrows(key: str, menu: Menu):
-    if key in ["KEY_NPAGE", "KEY_PPAGE"] and menu.filtered_rows.size <= ROWS_HEIGHT:
-        return
-    elif key == "KEY_DOWN":
+def handle_vertical_navigation(key: str, menu: Menu):
+    if key == "KEY_DOWN":
         if (menu.visible_row_index + 1) == ROWS_HEIGHT and menu.filtered_rows.size > ROWS_HEIGHT:
             menu.filtered_rows.forward(1)
         else:
@@ -167,12 +165,16 @@ def handle_vertical_arrows(key: str, menu: Menu):
         else:
             menu.visible_row_index = (menu.visible_row_index - 1) % menu.filtered_rows.size  # index of the selected visible row
     elif key == 'KEY_NPAGE':
-        menu.filtered_rows.forward(ROWS_HEIGHT)
+        menu.filtered_rows.forward(len(menu.visible_rows()))
     elif key == 'KEY_PPAGE':
-        menu.filtered_rows.backward(ROWS_HEIGHT)
-    draw_rows(menu)  # this will change selected row in menu
-    if menu != MENUS[2]:
-        MENUS[2].visible_row_index = 0
+        menu.filtered_rows.backward(len(menu.visible_rows()))
+    elif key == 'KEY_HOME':
+        menu.visible_row_index = 0
+    elif key == 'KEY_END':
+        menu.visible_row_index = len(menu.visible_rows()) - 1
+    draw_rows(menu)
+    if menu != menus[2]:
+        menus[2].visible_row_index = 0
 
 
 def catch_input(menu: Menu):
@@ -185,22 +187,22 @@ def catch_input(menu: Menu):
             time.sleep(0.1)
     if key in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]:
         increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
-        next_menu = MENUS[(MENUS.index(menu) + increment) % 3]
+        next_menu = menus[(menus.index(menu) + increment) % 3]
         draw_row(menu.win, menu.title, 1, 2, selected=False)  # remove selection from the current menu title
         draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)  # and select the new menu title
-        globals().update(SELECTED_MENU=next_menu)
-    elif key in ["KEY_UP", "KEY_DOWN", "KEY_NPAGE", "KEY_PPAGE"] and len(menu.visible_rows()) > 1:
-        handle_vertical_arrows(key, menu)
+        globals().update(selected_menu=next_menu)
+    elif key in ["KEY_UP", "KEY_DOWN", "KEY_NPAGE", "KEY_PPAGE", "KEY_HOME", "KEY_END"] and len(menu.visible_rows()) > 1:
+        handle_vertical_navigation(key, menu)
     elif key == "KEY_MOUSE" and MOUSE_ENABLED:
         try:
             mouse_info = curses.getmouse()
             handle_mouse(mouse_info, menu)
         except curses.error:  # this fixes scrolling error
             pass
-    elif key in KEY_BINDINGS.keys() and MENUS[2].selected_row():
+    elif key in KEY_BINDINGS.keys() and menus[2].selected_row():
         run_command(key, api_resource(), resource())
     elif key == "\x1b" and not menu.filter:
-        globals().update(SELECTED_MENU=None)  # exit
+        globals().update(selected_menu=None)  # exit
     else:
         handle_filter_state(key, menu)
 
@@ -209,19 +211,19 @@ def kubectl(command: str) -> list:
     return subprocess.check_output(f"kubectl {command}", shell=True).decode().strip().split("\n")
 
 
-api_resources_kubectl = [x.split()[0] for x in kubectl("api-resources --no-headers --verbs=get")]
-api_resources = list(dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl))  # so top api resources are at the top
-width_unit = WIDTH // 8
-MENUS = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit),
-         Menu("API resources", api_resources, width_unit, width_unit * 2),
-         Menu("Resources", [], width_unit * 3, WIDTH - width_unit * 3)]
-SELECTED_MENU = MENUS[0]
-namespace = MENUS[0].selected_row  # method alias
-api_resource = MENUS[1].selected_row
-resource = lambda: MENUS[2].selected_row().split()[0]
-
-
 def main(screen):
+    global menus, selected_menu, namespace, api_resource, resource
+    api_resources_kubectl = [x.split()[0] for x in kubectl("api-resources --no-headers --verbs=get")]
+    api_resources = list(
+        dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl))  # so top api resources are at the top
+    width_unit = WIDTH // 8
+    menus = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit),
+             Menu("API resources", api_resources, width_unit, width_unit * 2),
+             Menu("Resources", [], width_unit * 3, WIDTH - width_unit * 3)]
+    selected_menu = menus[0]
+    namespace = menus[0].selected_row  # method alias
+    api_resource = menus[1].selected_row
+    resource = lambda: menus[2].selected_row().split()[0]
     SCREEN.refresh()  # I don't know why this is needed but it doesn't work without it
     SCREEN.nodelay(True)  # don't block while waiting for input
     SCREEN.keypad(True)  # needed for arrow keys
@@ -231,11 +233,12 @@ def main(screen):
     curses.noecho()  # don't output characters at the top
     curses.mousemask(curses.REPORT_MOUSE_POSITION)  # mouse tracking
     print('\033[?1003h') # enable mouse tracking with the XTERM API. That's the magic
-    for menu in MENUS:  # draw the main windows
+    for menu in menus:  # draw the main windows
         draw_menu(menu)
     draw_row(curses.newwin(3, curses.COLS, curses.LINES - FOOTER_HEIGHT, 0), HELP_TEXT, 1, 2)  # and the help window
-    while SELECTED_MENU:
-        catch_input(SELECTED_MENU)  # if a menu is selected, catch user input
+    while selected_menu:
+        catch_input(selected_menu)  # if a menu is selected, catch user input
 
 
-curses.wrapper(main)
+if __name__ == "__main__":
+    curses.wrapper(main)
