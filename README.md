@@ -3,10 +3,13 @@
 ## Description
 `kls` is a cli tool based on `kubectl` for managing kubernetes cluster resources. 
 Inspired by `lf` and `ranger` file managers, written in python. 
-It is lightweight (~250 lines of code) and easy to customize. Supports mouse navigation as well as keyboard navigation.
+
+It is lightweight (~250 lines of code) and easy to customize.
+Supports mouse navigation as well as keyboard navigation.
 
 ## Key bindings
-For kubectl (You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a row #4):
+### For kubectl 
+You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a row #4:
 - `1` or `Enter` - get yaml of resource
 - `2` - describe resource
 - `3` - edit resource 
@@ -15,9 +18,11 @@ For kubectl (You can customize these bindings or add extra bindings in `KEY_BIND
 - `6` - network debug of pod (with nicolaka/netshoot container attached)
 - `delete` - delete resource
 
-Other:
+### Other:
+- letters - enter filter mode and apply filter
 - `Escape` - exit filter mode or `kls` itself
-- `TAB`, arrow keys - navigation
+- `Backspace` - remove letter from filter
+- `TAB`, arrow keys, `PgUp`, `PgDn`, `Home`, `End` - navigation
 
 ![kls in action](./images/kls.gif)
 
