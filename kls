@@ -15,7 +15,7 @@ KEY_BINDINGS = {  # can be extended
 TOP_API_RESOURCES = ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "ingresses", "nodes",
                      "deployments", "statefulsets", "daemonsets",  "storageclasses", "all"]
 
-HELP_TEXT = "Esc: exit filter mode or exit kls, 1/Enter: get yaml, 2: describe, 3: edit, 4: logs, 5: exec, 6: debug, arrows/TAB: navigation"
+HELP_TEXT = "letters: filter mode, Esc: exit filter mode or exit kls, 1/Enter: get yaml, 2: describe, 3: edit, 4: logs, 5: exec, 6: debug, arrows/TAB/PgUp/PgDn: navigation"
 
 MOUSE_ENABLED = True
 
