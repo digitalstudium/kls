@@ -47,15 +47,16 @@ class CircularList:
 
 
 class Menu:
-    def __init__(self, title: str, rows: list, begin_x: int, width: int):
+    def __init__(self, title: str, rows: list, begin_x: int, width: int, rows_height: int):
         self.title = title
         self.rows = rows  # all rows
         self.filter = ""  # filter for rows
         self.filtered_rows = CircularList([x for x in self.rows if self.filter in x])  # filtered rows
-        self.visible_rows = lambda: self.filtered_rows[:ROWS_HEIGHT]  # visible rows
+        self.visible_rows = lambda: self.filtered_rows[:rows_height]  # visible rows
         self.visible_row_index = 0  # index of the selected visible row
         # selected row from visible rows
         self.selected_row = lambda: self.visible_rows()[self.visible_row_index] if self.visible_rows() else None
+        self.rows_height = rows_height
         self.width = width
         self.begin_x = begin_x
         self.win = curses.newwin(curses.LINES - FOOTER_HEIGHT, width, 0, begin_x)
@@ -155,12 +156,12 @@ def handle_mouse(mouse_info: tuple, menu: Menu):
 
 def handle_vertical_navigation(key: str, menu: Menu):
     if key == "KEY_DOWN":
-        if (menu.visible_row_index + 1) == ROWS_HEIGHT and menu.filtered_rows.size > ROWS_HEIGHT:
+        if (menu.visible_row_index + 1) == menu.rows_height and menu.filtered_rows.size > menu.rows_height:
             menu.filtered_rows.forward(1)
         else:
             menu.visible_row_index = (menu.visible_row_index + 1) % menu.filtered_rows.size  # index of the selected visible row
     elif key == "KEY_UP":
-        if menu.visible_row_index == 0 and menu.filtered_rows.size > ROWS_HEIGHT:
+        if menu.visible_row_index == 0 and menu.filtered_rows.size > menu.rows_height:
             menu.filtered_rows.backward(1)
         else:
             menu.visible_row_index = (menu.visible_row_index - 1) % menu.filtered_rows.size  # index of the selected visible row
@@ -217,9 +218,9 @@ def main(screen):
     api_resources = list(
         dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl))  # so top api resources are at the top
     width_unit = WIDTH // 8
-    menus = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit),
-             Menu("API resources", api_resources, width_unit, width_unit * 2),
-             Menu("Resources", [], width_unit * 3, WIDTH - width_unit * 3)]
+    menus = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit, ROWS_HEIGHT),
+             Menu("API resources", api_resources, width_unit, width_unit * 2, ROWS_HEIGHT),
+             Menu("Resources", [], width_unit * 3, WIDTH - width_unit * 3, ROWS_HEIGHT)]
     selected_menu = menus[0]
     namespace = menus[0].selected_row  # method alias
     api_resource = menus[1].selected_row

@@ -30,23 +30,21 @@ class TestScriptFunctions(unittest.TestCase):
 
 class TestMenu(unittest.TestCase):
     def setUp(self):
-        self.rows = ['pods', 'services', 'configmaps']
-        self.menu = Menu('Test Menu', self.rows, 0, 10)
+        self.rows = ['a', 'b', 'c']
+        self.menu = Menu('Test', self.rows, 0, 10, 2)
         os.system("ln -s kls kls.py")
 
-    def test_init(self):
-        self.assertEqual(self.menu.title, 'Test Menu')
-        self.assertEqual(self.menu.rows, self.rows)
-        
-    def test_filter_rows_no_filter(self):
-        # Test with no filter applied
+    def test_menu(self):
+        self.assertEqual(self.menu.title, 'Test')
         self.assertEqual(self.menu.filtered_rows.elements, self.rows)
+        self.assertEqual(self.menu.visible_rows(), ['a', 'b'])
+        self.assertEqual(self.menu.selected_row(), 'a')
 
     def test_filter_rows_with_filter(self):
         # Apply a filter and test
-        self.menu.filter = 'pod'
+        self.menu.filter = 'a'
         self.menu.filtered_rows = CircularList([x for x in self.menu.rows if self.menu.filter in x])
-        self.assertEqual(self.menu.filtered_rows.elements, ['pods'])
+        self.assertEqual(self.menu.filtered_rows.elements, ['a'])
 
     def test_filter_rows_with_nonexistent_filter(self):
         # Apply a filter that matches no rows
