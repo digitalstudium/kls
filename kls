@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import subprocess, curses, time
 
+# constants
 KEY_BINDINGS = {  # can be extended
     "1": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',
     "\n": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',  # Enter key
@@ -14,11 +15,8 @@ KEY_BINDINGS = {  # can be extended
 # which api resources are on the top of menu?
 TOP_API_RESOURCES = ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "ingresses", "nodes",
                      "deployments", "statefulsets", "daemonsets",  "storageclasses", "all"]
-
 HELP_TEXT = "letters: filter mode, Esc: exit filter mode or exit kls, 1/Enter: get yaml, 2: describe, 3: edit, 4: logs, 5: exec, 6: debug, arrows/TAB/PgUp/PgDn: navigation"
-
 MOUSE_ENABLED = True
-
 SCREEN = curses.initscr()  # screen initialization, needed for ROWS_HEIGHT working
 HEADER_HEIGHT = 4  # in rows
 FOOTER_HEIGHT = 3
@@ -26,6 +24,7 @@ ROWS_HEIGHT = curses.LINES - HEADER_HEIGHT - FOOTER_HEIGHT - 3   # maximum numbe
 WIDTH = curses.COLS
 
 
+# classes
 class CircularList:
     def __init__(self, elements):
         self.elements = elements
@@ -56,6 +55,7 @@ class Menu:
         self.win = curses.newwin(curses.LINES - FOOTER_HEIGHT, width, 0, begin_x)
 
 
+# helper functions
 def draw_row(window: curses.window, text: str, y: int, x: int, selected: bool = False):
     window.addstr(y, x, text, curses.A_REVERSE | curses.A_BOLD if selected else curses.A_NORMAL)
     window.clrtoeol()
@@ -87,7 +87,9 @@ def refresh_third_menu():
     draw_menu(menu)
 
 
-def run_command(key: str, api_resource: str, resource: str):
+def handle_key_bindings(key: str, api_resource: str, resource: str):
+    if not menus[2].selected_row():
+        return
     if key in ("4", "5", "6"):
         if api_resource not in ["pods", "all"] or (api_resource == "all" and not resource.startswith("pod/")):
             return
@@ -99,12 +101,15 @@ def run_command(key: str, api_resource: str, resource: str):
     subprocess.call(command, shell=True)
     curses.reset_prog_mode()  # restore the previous terminal state
     SCREEN.refresh()
-    curses.mousemask(curses.REPORT_MOUSE_POSITION)  # mouse tracking
-    print('\033[?1003h') # enable mouse tracking with the XTERM API. That's the magic
+    enable_mouse_support()
 
 
 def handle_filter_state(key: str, menu: Menu):
-    if key == "\x1b":
+    if key in ["KEY_BACKSPACE", "\x08"] and not menu.filter:
+        return
+    elif key == "\x1b" and not menu.filter:
+        globals().update(selected_menu=None)  # exit
+    elif key == "\x1b":
         menu.filter = ""  # Escape key exits filter mode
     elif key in ["KEY_BACKSPACE", "\x08"]:
         menu.filter = menu.filter[:-1]  # Backspace key deletes a character (\x08 is also Backspace)
@@ -118,6 +123,8 @@ def handle_filter_state(key: str, menu: Menu):
 
 
 def handle_mouse(menu: Menu):
+    if not MOUSE_ENABLED:
+        return
     try:
         mouse_info = curses.getmouse()
     except curses.error:  # this fixes scrolling error
@@ -153,19 +160,27 @@ def handle_mouse(menu: Menu):
 def handle_vertical_navigation(key: str, menu: Menu):
     if len(menu.visible_rows()) <= 1:
         return
-    shifts = {"KEY_DOWN": 1, "KEY_UP": -1, "KEY_NPAGE": 1, "KEY_PPAGE": -1, 'KEY_HOME': 0, 'KEY_END': -1}
+    keys_numbers = {"KEY_DOWN": 1, "KEY_UP": -1, "KEY_NPAGE": 1, "KEY_PPAGE": -1, 'KEY_HOME': 0, 'KEY_END': -1}
     if key in ["KEY_DOWN", "KEY_UP"]:
         if menu.filtered_rows.size > menu.rows_height:
-            menu.filtered_rows.shift(shifts[key])
+            menu.filtered_rows.shift(keys_numbers[key])
         else:
-            menu.visible_row_index = (menu.visible_row_index + shifts[key]) % menu.filtered_rows.size  # index of the selected visible row
+            menu.visible_row_index = (menu.visible_row_index + keys_numbers[key]) % menu.filtered_rows.size  # index of the selected visible row
     elif key in ["KEY_NPAGE", "KEY_PPAGE"]:
-        menu.filtered_rows.shift(shifts[key] * len(menu.visible_rows()))
+        menu.filtered_rows.shift(keys_numbers[key] * len(menu.visible_rows()))
     elif key in ['KEY_HOME','KEY_END']:
-        menu.visible_row_index = shifts[key]
+        menu.visible_row_index = keys_numbers[key]
     draw_rows(menu)
     if menu != menus[2]:
         menus[2].visible_row_index = 0
+
+
+def handle_horizontal_navigation(key, menu):
+    increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
+    next_menu = menus[(menus.index(menu) + increment) % 3]
+    draw_row(menu.win, menu.title, 1, 2, selected=False)  # remove selection from the current menu title
+    draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)  # and select the new menu title
+    globals().update(selected_menu=next_menu)
 
 
 def catch_input(menu: Menu):
@@ -177,20 +192,14 @@ def catch_input(menu: Menu):
             refresh_third_menu()
             time.sleep(0.1)
     if key in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]:
-        increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
-        next_menu = menus[(menus.index(menu) + increment) % 3]
-        draw_row(menu.win, menu.title, 1, 2, selected=False)  # remove selection from the current menu title
-        draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)  # and select the new menu title
-        globals().update(selected_menu=next_menu)
+        handle_horizontal_navigation(key, menu)
     elif key in ["KEY_UP", "KEY_DOWN", "KEY_NPAGE", "KEY_PPAGE", "KEY_HOME", "KEY_END"]:
         handle_vertical_navigation(key, menu)
-    elif key == "KEY_MOUSE" and MOUSE_ENABLED:
+    elif key == "KEY_MOUSE":
         handle_mouse(menu)
-    elif key in KEY_BINDINGS.keys() and menus[2].selected_row():
-        run_command(key, api_resource(), resource())
-    elif key == "\x1b" and not menu.filter:
-        globals().update(selected_menu=None)  # exit
-    elif (key in ["\x1b", "KEY_BACKSPACE", "\x08"] and menu.filter) or key.isalpha() or key == "-":
+    elif key in KEY_BINDINGS.keys():
+        handle_key_bindings(key, api_resource(), resource())
+    elif key in ["\x1b", "KEY_BACKSPACE", "\x08"] or key.isalpha() or key == "-":  # \x1b - escape, \x08 - backspace
         handle_filter_state(key, menu)
 
 
@@ -198,7 +207,12 @@ def kubectl(command: str) -> list:
     return subprocess.check_output(f"kubectl {command}", shell=True).decode().strip().split("\n")
 
 
-def main(screen):
+def enable_mouse_support():
+    curses.mousemask(curses.REPORT_MOUSE_POSITION)  # mouse tracking
+    print('\033[?1003h') # enable mouse tracking with the XTERM API. That's the magic
+
+
+def init_menus():
     global menus, selected_menu, namespace, api_resource, resource
     api_resources_kubectl = [x.split()[0] for x in kubectl("api-resources --no-headers --verbs=get")]
     api_resources = list(
@@ -210,7 +224,7 @@ def main(screen):
     selected_menu = menus[0]
     namespace = menus[0].selected_row  # method alias
     api_resource = menus[1].selected_row
-    resource = lambda: menus[2].selected_row().split()[0]
+    resource = lambda: menus[2].selected_row().split()[0] if menus[2].selected_row() else None
     SCREEN.refresh()  # I don't know why this is needed but it doesn't work without it
     SCREEN.nodelay(True)  # don't block while waiting for input
     SCREEN.keypad(True)  # needed for arrow keys
@@ -218,8 +232,11 @@ def main(screen):
     curses.curs_set(0)  # make the cursor invisible
     curses.use_default_colors()  # don't change the terminal color
     curses.noecho()  # don't output characters at the top
-    curses.mousemask(curses.REPORT_MOUSE_POSITION)  # mouse tracking
-    print('\033[?1003h') # enable mouse tracking with the XTERM API. That's the magic
+    enable_mouse_support()
+
+
+def main(screen):
+    init_menus()
     for menu in menus:  # draw the main windows
         draw_menu(menu)
     draw_row(curses.newwin(3, curses.COLS, curses.LINES - FOOTER_HEIGHT, 0), HELP_TEXT, 1, 2)  # and the help window
