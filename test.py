@@ -12,11 +12,11 @@ class TestCircularList(unittest.TestCase):
         self.circular_list = CircularList(['a', 'b', 'c'])
 
     def test_forward(self):
-        self.circular_list.forward(1)
+        self.circular_list.shift(1)
         self.assertEqual(self.circular_list.index, 1)
 
     def test_backward(self):
-        self.circular_list.backward(1)
+        self.circular_list.shift(-1)
         self.assertEqual(self.circular_list.index, 2)  # Since it's circular, it goes to the end
 
 

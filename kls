@@ -33,17 +33,11 @@ class CircularList:
         self.index = 0
 
     def __getitem__(self, index):
-        if isinstance(index, slice):
-            start, stop, step = index.indices(self.size)
-            return [self.elements[(self.index + i) % self.size] for i in range(start, stop, step)]
-        else:
-            raise TypeError("Invalid index type")
+        start, stop, step = index.indices(self.size)
+        return [self.elements[(self.index + i) % self.size] for i in range(start, stop, step)]
 
-    def forward(self, steps):
+    def shift(self, steps):
         self.index = (self.index + steps) % self.size
-
-    def backward(self, steps):
-        self.index = (self.index - steps) % self.size
 
 
 class Menu:
@@ -85,9 +79,9 @@ def refresh_third_menu():
     menu.rows = []
     if api_resource() and namespace():
         menu.rows = kubectl(f"-n {namespace()} get {api_resource()} --no-headers --ignore-not-found")
-    index_before_update = menu.filtered_rows.index
-    menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
-    menu.filtered_rows.index = index_before_update
+        index_before_update = menu.filtered_rows.index
+        menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
+        menu.filtered_rows.index = index_before_update
     if menu.visible_row_index >= len(menu.visible_rows()):
         menu.visible_row_index = 0
     draw_menu(menu)
@@ -116,8 +110,6 @@ def handle_filter_state(key: str, menu: Menu):
         menu.filter = menu.filter[:-1]  # Backspace key deletes a character (\x08 is also Backspace)
     elif key.isalpha() or key == "-":
         menu.filter += key.lower()
-    else:
-        return
     menu.visible_row_index = 0
     menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
     draw_menu(menu)
@@ -125,7 +117,11 @@ def handle_filter_state(key: str, menu: Menu):
         menus[2].visible_row_index = 0  # reset the visible row index of third menu before redrawing
 
 
-def handle_mouse(mouse_info: tuple, menu: Menu):
+def handle_mouse(menu: Menu):
+    try:
+        mouse_info = curses.getmouse()
+    except curses.error:  # this fixes scrolling error
+        return
     row_number = mouse_info[2] - HEADER_HEIGHT
     column_number = mouse_info[1]
     next_menu = None
@@ -155,24 +151,18 @@ def handle_mouse(mouse_info: tuple, menu: Menu):
 
 
 def handle_vertical_navigation(key: str, menu: Menu):
-    if key == "KEY_DOWN":
-        if (menu.visible_row_index + 1) == menu.rows_height and menu.filtered_rows.size > menu.rows_height:
-            menu.filtered_rows.forward(1)
+    if len(menu.visible_rows()) <= 1:
+        return
+    shifts = {"KEY_DOWN": 1, "KEY_UP": -1, "KEY_NPAGE": 1, "KEY_PPAGE": -1, 'KEY_HOME': 0, 'KEY_END': -1}
+    if key in ["KEY_DOWN", "KEY_UP"]:
+        if menu.filtered_rows.size > menu.rows_height:
+            menu.filtered_rows.shift(shifts[key])
         else:
-            menu.visible_row_index = (menu.visible_row_index + 1) % menu.filtered_rows.size  # index of the selected visible row
-    elif key == "KEY_UP":
-        if menu.visible_row_index == 0 and menu.filtered_rows.size > menu.rows_height:
-            menu.filtered_rows.backward(1)
-        else:
-            menu.visible_row_index = (menu.visible_row_index - 1) % menu.filtered_rows.size  # index of the selected visible row
-    elif key == 'KEY_NPAGE':
-        menu.filtered_rows.forward(len(menu.visible_rows()))
-    elif key == 'KEY_PPAGE':
-        menu.filtered_rows.backward(len(menu.visible_rows()))
-    elif key == 'KEY_HOME':
-        menu.visible_row_index = 0
-    elif key == 'KEY_END':
-        menu.visible_row_index = len(menu.visible_rows()) - 1
+            menu.visible_row_index = (menu.visible_row_index + shifts[key]) % menu.filtered_rows.size  # index of the selected visible row
+    elif key in ["KEY_NPAGE", "KEY_PPAGE"]:
+        menu.filtered_rows.shift(shifts[key] * len(menu.visible_rows()))
+    elif key in ['KEY_HOME','KEY_END']:
+        menu.visible_row_index = shifts[key]
     draw_rows(menu)
     if menu != menus[2]:
         menus[2].visible_row_index = 0
@@ -192,19 +182,15 @@ def catch_input(menu: Menu):
         draw_row(menu.win, menu.title, 1, 2, selected=False)  # remove selection from the current menu title
         draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)  # and select the new menu title
         globals().update(selected_menu=next_menu)
-    elif key in ["KEY_UP", "KEY_DOWN", "KEY_NPAGE", "KEY_PPAGE", "KEY_HOME", "KEY_END"] and len(menu.visible_rows()) > 1:
+    elif key in ["KEY_UP", "KEY_DOWN", "KEY_NPAGE", "KEY_PPAGE", "KEY_HOME", "KEY_END"]:
         handle_vertical_navigation(key, menu)
     elif key == "KEY_MOUSE" and MOUSE_ENABLED:
-        try:
-            mouse_info = curses.getmouse()
-            handle_mouse(mouse_info, menu)
-        except curses.error:  # this fixes scrolling error
-            pass
+        handle_mouse(menu)
     elif key in KEY_BINDINGS.keys() and menus[2].selected_row():
         run_command(key, api_resource(), resource())
     elif key == "\x1b" and not menu.filter:
         globals().update(selected_menu=None)  # exit
-    else:
+    elif (key in ["\x1b", "KEY_BACKSPACE", "\x08"] and menu.filter) or key.isalpha() or key == "-":
         handle_filter_state(key, menu)
 
 
