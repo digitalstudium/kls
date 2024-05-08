@@ -78,7 +78,10 @@ def refresh_third_menu(namespace: str, api_resource: str):
     menu = menus[2]
     menu.rows = []
     if api_resource and namespace:
-        menu.rows = kubectl(f"-n {namespace} get {api_resource} --no-headers --ignore-not-found")
+        if api_resource == "all":
+            menu.rows = kubectl(f"api-resources --verbs=get --namespaced -o name | grep -v events | xargs -n 1 kubectl get --show-kind --namespace {namespace} --ignore-not-found --no-headers -o name")
+        else:
+            menu.rows = kubectl(f"-n {namespace} get {api_resource} --no-headers --ignore-not-found")
         index_before_update = menu.filtered_rows.index
         menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
         menu.filtered_rows.index = index_before_update
@@ -184,7 +187,7 @@ def handle_horizontal_navigation(key, menu):
 
 
 def catch_input(menu: Menu):
-    while True:  # refresh third menu until key pressed
+    while True:  # refresh third menu until key pressed        
         try:
             key = SCREEN.getkey()
             break
