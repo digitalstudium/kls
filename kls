@@ -210,7 +210,7 @@ def catch_input(menu: Menu):
 
 
 def kubectl(command: str) -> list:
-    return subprocess.check_output(f"kubectl {command}", shell=True).decode().strip().split("\n")
+    return subprocess.check_output(f"kubectl {command} 2> /dev/null", shell=True).decode().strip().split("\n")
 
 
 def enable_mouse_support():
