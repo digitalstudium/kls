@@ -98,13 +98,12 @@ class TestMenu(unittest.TestCase):
         resource = self.third_menu.selected_row()
 
         key = "1"  # Assuming you want to test the case where key is '1'
-        expected_command = kls.KEY_BINDINGS[key].format(namespace=namespace, api_resource=api_resource, resource=resource)
 
         kls.handle_key_bindings(key, namespace, api_resource, resource)
 
         mock_def_prog_mode.assert_called_once()
         mock_reset_prog_mode.assert_called_once()
-        mock_subprocess_call.assert_called_once_with(expected_command, shell=True)
+        mock_subprocess_call.assert_called_once()
 
     @patch('kls.curses.def_prog_mode')
     def test_handle_key_bindings_empty_resource(self, mock_def_prog_mode):

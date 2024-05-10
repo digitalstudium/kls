@@ -3,19 +3,21 @@ import subprocess, curses, time
 
 # constants
 KEY_BINDINGS = {  # can be extended
-    "1": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',
-    "\n": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml --paging always --style numbers',  # Enter key
-    "2": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml --paging always --style numbers',
+    "1": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml',
+    "\n": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml',  # Enter key
+    "2": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml',
     "3": 'kubectl -n {namespace} edit {api_resource} {resource}',
-    "4": 'kubectl -n {namespace} logs {resource} | batcat -l log --paging always --style numbers',
+    "4": 'kubectl -n {namespace} logs {resource} | batcat -l log',
     "5": 'kubectl -n {namespace} exec -it {resource} sh',
     "6": 'kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot',
     "KEY_DC": 'kubectl -n {namespace} delete {api_resource} {resource}'  # KEY_DC is the delete key
 }
+BATCAT_STYLE = " --paging always --style numbers"
 # which api resources are on the top of menu?
 TOP_API_RESOURCES = ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "ingresses", "nodes",
                      "deployments", "statefulsets", "daemonsets",  "storageclasses", "all"]
-HELP_TEXT = "letters: filter mode, Esc: exit filter mode or exit kls, 1/Enter: get yaml, 2: describe, 3: edit, 4: logs, 5: exec, 6: debug, arrows/TAB/PgUp/PgDn: navigation"
+HELP_TEXT = ("letters: filter mode, Esc: exit filter mode or exit kls, 1/Enter: get yaml, 2: describe, 3: edit, "
+             "4: logs, 5: exec, 6: debug, arrows/TAB/PgUp/PgDn: navigation")
 MOUSE_ENABLED = True
 SCREEN = curses.initscr()  # screen initialization, needed for ROWS_HEIGHT working
 HEADER_HEIGHT = 4  # in rows
@@ -47,7 +49,6 @@ class Menu:
         self.filtered_rows = CircularList([x for x in self.rows if self.filter in x])  # filtered rows
         self.visible_rows = lambda: self.filtered_rows[:rows_height]  # visible rows
         self.visible_row_index = 0  # index of the selected visible row
-        # selected row from visible rows
         self.selected_row = lambda: self.visible_rows()[self.visible_row_index] if self.visible_rows() else None
         self.rows_height = rows_height
         self.width = width
@@ -79,7 +80,9 @@ def refresh_third_menu(namespace: str, api_resource: str):
     previous_menu_rows = menu.rows
     if api_resource and namespace:
         if api_resource == "all":
-            menu.rows = kubectl(f"api-resources --verbs=get --namespaced -o name | grep -v events | xargs -n 1 kubectl get --show-kind --namespace {namespace} --ignore-not-found --no-headers -o name")
+            cmd = ("api-resources --verbs=get --namespaced -o name | grep -v events | xargs -n 1 kubectl get"
+                   f" --show-kind --namespace {namespace} --ignore-not-found --no-headers -o name")
+            menu.rows = kubectl(cmd)
         else:
             menu.rows = kubectl(f"-n {namespace} get {api_resource} --no-headers --ignore-not-found")
         index_before_update = menu.filtered_rows.index
@@ -104,6 +107,8 @@ def handle_key_bindings(key: str, namespace: str, api_resource: str, resource: s
     command = KEY_BINDINGS[key].format(namespace=namespace, api_resource=api_resource, resource=resource)
     if api_resource == "all":
         command = command.replace(" all", "")
+    if "batcat" in command:
+        command += BATCAT_STYLE
     subprocess.call(command, shell=True)
     curses.reset_prog_mode()  # restore the previous terminal state
     SCREEN.refresh()

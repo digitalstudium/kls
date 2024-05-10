@@ -9,7 +9,7 @@ Supports mouse navigation as well as keyboard navigation.
 
 ## Key bindings
 ### For kubectl 
-You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a row #4:
+You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a row #5:
 - `1` or `Enter` - get yaml of resource
 - `2` - describe resource
 - `3` - edit resource 
