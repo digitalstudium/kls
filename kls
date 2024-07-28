@@ -15,7 +15,7 @@ KEY_BINDINGS = {  # can be extended
 BATCAT_STYLE = " --paging always --style numbers"
 # which api resources are on the top of menu?
 TOP_API_RESOURCES = ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "ingresses", "nodes",
-                     "deployments", "statefulsets", "daemonsets",  "storageclasses", "all"]
+                     "deployments", "statefulsets", "daemonsets",  "storageclasses"]
 HELP_TEXT = ("letters: filter mode, Esc: exit filter mode or exit kls, 1/Enter: get yaml, 2: describe, 3: edit, "
              "4: logs, 5: exec, 6: debug, arrows/TAB/PgUp/PgDn: navigation")
 MOUSE_ENABLED = True
@@ -79,12 +79,7 @@ def refresh_third_menu(namespace: str, api_resource: str):
     menu = menus[2]
     previous_menu_rows = menu.rows
     if api_resource and namespace:
-        if api_resource == "all":
-            cmd = ("api-resources --verbs=get --namespaced -o name | grep -v events | xargs -n 1 kubectl get"
-                   f" --show-kind --namespace {namespace} --ignore-not-found --no-headers -o name")
-            menu.rows = kubectl(cmd)
-        else:
-            menu.rows = kubectl(f"-n {namespace} get {api_resource} --no-headers --ignore-not-found")
+        menu.rows = kubectl(f"-n {namespace} get {api_resource} --no-headers --ignore-not-found")
         index_before_update = menu.filtered_rows.index
         menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
         menu.filtered_rows.index = index_before_update
@@ -99,14 +94,11 @@ def refresh_third_menu(namespace: str, api_resource: str):
 def handle_key_bindings(key: str, namespace: str, api_resource: str, resource: str):
     if not resource:
         return
-    if key in ("4", "5", "6"):
-        if api_resource not in ["pods", "all"] or (api_resource == "all" and not resource.startswith("pod/")):
-            return
+    if key in ("4", "5", "6") and api_resource != "pods" and not resource.startswith("pod/"):
+        return
     curses.def_prog_mode()  # save the previous terminal state
     curses.endwin()  # without this, there are problems after exiting vim
     command = KEY_BINDINGS[key].format(namespace=namespace, api_resource=api_resource, resource=resource)
-    if api_resource == "all":
-        command = command.replace(" all", "")
     if "batcat" in command:
         command += BATCAT_STYLE
     subprocess.call(command, shell=True)
@@ -258,3 +250,4 @@ def main(screen):
 if __name__ == "__main__":
     curses.wrapper(main)
     subprocess.run("tput reset", shell=True)
+    
