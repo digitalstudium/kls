@@ -29,7 +29,7 @@ You can customize these bindings or add extra bindings in `KEY_BINDINGS` variabl
 ## Dependencies
 - `python3`
 - `kubectl`
-- `batcat`
+- `bat`
 
 ## Installation
 Download latest `kls`:
