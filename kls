@@ -178,7 +178,7 @@ def handle_vertical_navigation(key: str, menu: Menu):
         menus[2].visible_row_index = 0
 
 
-def handle_horizontal_navigation(key, menu):
+def handle_horizontal_navigation(key: str, menu: Menu):
     increment = {"KEY_RIGHT": 1, "\t": 1, "KEY_LEFT": -1, "KEY_BTAB": -1}[key]
     next_menu = menus[(menus.index(menu) + increment) % 3]
     draw_row(menu.win, menu.title, 1, 2, selected=False)  # remove selection from the current menu title
