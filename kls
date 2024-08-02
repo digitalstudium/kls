@@ -211,8 +211,9 @@ def kubectl(command: str) -> list:
 
 
 def enable_mouse_support():
-    curses.mousemask(curses.REPORT_MOUSE_POSITION)  # mouse tracking
-    print('\033[?1003h') # enable mouse tracking with the XTERM API. That's the magic
+    if MOUSE_ENABLED:
+        curses.mousemask(curses.REPORT_MOUSE_POSITION)  # mouse tracking
+        print('\033[?1003h') # enable mouse tracking with the XTERM API. That's the magic
 
 
 def init_menus():
