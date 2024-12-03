@@ -32,6 +32,10 @@ You can customize these bindings or add extra bindings in `KEY_BINDINGS` variabl
 - `bat`
 
 ## Installation
+Install `batcat`:
+```
+sudo apt install bat -y
+```
 Download and install the latest `kls`:
 ```
 curl -O "https://git.digitalstudium.com/digitalstudium/kls/raw/branch/main/kls" && sudo install ./kls /usr/local/bin/ && rm -f ./kls
