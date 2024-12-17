@@ -1,27 +1,53 @@
 #!/usr/bin/env python3
 import subprocess, curses, time
+import curses.ascii
+import sys
 
 # constants
 KEY_BINDINGS = {  # can be extended
-    "y": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml',
-    "d": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml',
-    "e": 'kubectl -n {namespace} edit {api_resource} {resource}',
-    "l": 'kubectl -n {namespace} logs {resource} | batcat -l log',
-    "\n": 'kubectl -n {namespace} exec -it {resource} sh',
-    "n": 'kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot', # network debug
-    "KEY_DC": 'kubectl -n {namespace} delete {api_resource} {resource}'  # KEY_DC is the delete key
+    "^Y": {
+        "description": "View resource in YAML format",
+        "command": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml'
+    },
+    "^D": {
+        "description": "Describe resource",
+        "command": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml'
+    },
+    "^E": {
+        "description": "Edit resource",
+        "command": 'kubectl -n {namespace} edit {api_resource} {resource}'
+    },
+    "^L": {
+        "description": "View logs",
+        "command": 'kubectl -n {namespace} logs {resource} | batcat -l log'
+    },
+    "^X": {
+        "description": "Exec into pod",
+        "command": 'kubectl -n {namespace} exec -it {resource} sh'
+    },
+    "^N": {
+        "description": "Network debug",
+        "command": 'kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot'
+    },
+    "KEY_DC": {
+        "description": "Delete resource",
+        "command": 'kubectl -n {namespace} delete {api_resource} {resource}'
+    }
 }
+
 BATCAT_STYLE = " --paging always --style numbers"
 # which api resources are on the top of menu?
 TOP_API_RESOURCES = ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "ingresses", "nodes",
-                     "deployments", "statefulsets", "daemonsets",  "storageclasses"]
-HELP_TEXT = ("/ : filter mode, Esc: exit filter mode or exit kls, Enter: exec into pod, d: describe, e: edit, "
-             "l: logs, n: network debug, arrows/TAB/PgUp/PgDn: navigation")
+                     "deployments", "statefulsets", "daemonsets", "storageclasses"]
+# Dynamically generate HELP_TEXT based on KEY_BINDINGS descriptions
+HELP_TEXT = ", ".join(f"{key}: {binding['description']}" for key, binding in KEY_BINDINGS.items())
+HELP_TEXT += ", /: filter mode, Esc: exit filter mode or exit kls, arrows/TAB/PgUp/PgDn: navigation"
+
 MOUSE_ENABLED = False
 SCREEN = curses.initscr()  # screen initialization, needed for ROWS_HEIGHT working
 HEADER_HEIGHT = 4  # in rows
 FOOTER_HEIGHT = 3
-ROWS_HEIGHT = curses.LINES - HEADER_HEIGHT - FOOTER_HEIGHT - 3   # maximum number of visible rows indices
+ROWS_HEIGHT = curses.LINES - HEADER_HEIGHT - FOOTER_HEIGHT - 3  # maximum number of visible rows indices
 WIDTH = curses.COLS
 
 
@@ -72,7 +98,8 @@ def draw_menu(menu: Menu):
     menu.win.erase()  # clear menu window
     draw_row(menu.win, menu.title, 1, 2, selected=True if menu == selected_menu else False)  # draw title
     draw_rows(menu)  # draw menu rows
-    draw_row(menu.win, f"/{menu.filter}" if menu.filter_mode else "", curses.LINES - FOOTER_HEIGHT - 2, 2)  # draw filter row
+    draw_row(menu.win, f"/{menu.filter}" if menu.filter_mode else "", curses.LINES - FOOTER_HEIGHT - 2,
+             2)  # draw filter row
 
 
 def refresh_third_menu(namespace, api_resource):
@@ -97,11 +124,11 @@ def refresh_third_menu(namespace, api_resource):
 def handle_key_bindings(key: str, namespace: str, api_resource: str, resource: str):
     if not resource:
         return
-    if key in ("l", "\n", "n") and api_resource != "pods" and not resource.startswith("pod/"):
+    if key in ("l", "x", "n") and api_resource != "pods" and not resource.startswith("pod/"):
         return
     curses.def_prog_mode()  # save the previous terminal state
     curses.endwin()  # without this, there are problems after exiting vim
-    command = KEY_BINDINGS[key].format(namespace=namespace, api_resource=api_resource, resource=resource)
+    command = KEY_BINDINGS[key]["command"].format(namespace=namespace, api_resource=api_resource, resource=resource)
     if "batcat" in command:
         command += BATCAT_STYLE
     subprocess.call(command, shell=True)
@@ -132,7 +159,6 @@ def handle_filter_state(key: str, menu: Menu):
         menus[2].visible_row_index = 0  # reset the visible row index of third menu before redrawing
 
 
-
 def handle_mouse(menu: Menu):
     if not MOUSE_ENABLED:
         return
@@ -157,7 +183,7 @@ def handle_mouse(menu: Menu):
         draw_row(menu.win, menu.title, 1, 2, selected=False)  # remove selection from the current menu title
         draw_row(next_menu.win, next_menu.title, 1, 2, selected=True)  # and select the new menu title
         menu = next_menu
-    char_int = menu.win.inch(mouse_info[2], column_number - menu.begin_x - 1) # get char from current mouse position
+    char_int = menu.win.inch(mouse_info[2], column_number - menu.begin_x - 1)  # get char from current mouse position
     char_str = chr(char_int & 0xFF)
     if not char_str or ord(char_str) > 127 or ' ' in char_str:
         return
@@ -176,10 +202,11 @@ def handle_vertical_navigation(key: str, menu: Menu):
         if menu.filtered_rows.size > menu.rows_height:
             menu.filtered_rows.shift(keys_numbers[key])
         else:
-            menu.visible_row_index = (menu.visible_row_index + keys_numbers[key]) % menu.filtered_rows.size  # index of the selected visible row
+            menu.visible_row_index = (menu.visible_row_index + keys_numbers[
+                key]) % menu.filtered_rows.size  # index of the selected visible row
     elif key in ["KEY_NPAGE", "KEY_PPAGE"]:
         menu.filtered_rows.shift(keys_numbers[key] * len(menu.visible_rows()))
-    elif key in ['KEY_HOME','KEY_END']:
+    elif key in ['KEY_HOME', 'KEY_END']:
         menu.visible_row_index = keys_numbers[key]
     draw_rows(menu)
     if menu != menus[2]:
@@ -195,7 +222,7 @@ def handle_horizontal_navigation(key: str, menu: Menu):
 
 
 def catch_input(menu: Menu):
-    while True:  # refresh third menu until key pressed        
+    while True:  # refresh third menu until key pressed
         try:
             key = SCREEN.getkey()
             break
@@ -208,9 +235,10 @@ def catch_input(menu: Menu):
         handle_vertical_navigation(key, menu)
     elif key == "KEY_MOUSE":
         handle_mouse(menu)
-    elif key in KEY_BINDINGS.keys():
-        handle_key_bindings(key, namespace(), api_resource(), resource())
-    elif key in ["/", "\x1b", "KEY_BACKSPACE", "\x08"] or key.isalnum() or key == "-":  # \x1b - escape, \x08 - backspace
+    elif curses.ascii.unctrl(key) in KEY_BINDINGS.keys():
+        handle_key_bindings(curses.ascii.unctrl(key), namespace(), api_resource(), resource())
+    elif key in ["/", "\x1b", "KEY_BACKSPACE",
+                 "\x08"] or key.isalnum() or key == "-":  # \x1b - escape, \x08 - backspace
         handle_filter_state(key, menu)
 
 
@@ -221,7 +249,7 @@ def kubectl(command: str) -> list:
 def enable_mouse_support():
     if MOUSE_ENABLED:
         curses.mousemask(curses.REPORT_MOUSE_POSITION)  # mouse tracking
-        print('\033[?1003h') # enable mouse tracking with the XTERM API. That's the magic
+        print('\033[?1003h')  # enable mouse tracking with the XTERM API. That's the magic
 
 
 def init_menus():
@@ -233,7 +261,8 @@ def init_menus():
     try:
         namespaces = kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name")
     except:
-        namespaces = kubectl("config view --minify --output 'jsonpath={..namespace}'")  # if it is forbidden to list all namespaces
+        namespaces = kubectl(
+            "config view --minify --output 'jsonpath={..namespace}'")  # if it is forbidden to list all namespaces
     menus = [Menu("Namespaces", namespaces, 0, width_unit, ROWS_HEIGHT),
              Menu("API resources", api_resources, width_unit, width_unit * 2, ROWS_HEIGHT),
              Menu("Resources", [], width_unit * 3, WIDTH - width_unit * 3, ROWS_HEIGHT)]
@@ -263,4 +292,3 @@ def main(screen):
 if __name__ == "__main__":
     curses.wrapper(main)
     subprocess.run("tput reset", shell=True)
-    
