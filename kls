@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 import subprocess, curses, time
 import curses.ascii
-import sys
 
-# constants
 KEY_BINDINGS = {  # can be extended
     "^Y": {
         "description": "View resource in YAML format",
@@ -235,6 +233,8 @@ def catch_input(menu: Menu):
         handle_vertical_navigation(key, menu)
     elif key == "KEY_MOUSE":
         handle_mouse(menu)
+    elif key in KEY_BINDINGS.keys():
+        handle_key_bindings(key, namespace(), api_resource(), resource())
     elif curses.ascii.unctrl(key) in KEY_BINDINGS.keys():
         handle_key_bindings(curses.ascii.unctrl(key), namespace(), api_resource(), resource())
     elif key in ["/", "\x1b", "KEY_BACKSPACE",
