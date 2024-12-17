@@ -242,6 +242,8 @@ async def confirm_action(message: str) -> bool:
         if key.lower() == 'y':
             return True
         elif key.lower() == 'n':
+            popup.clear()  # Clear the popup window
+            popup.refresh()  # Refresh the window to hide it
             return False
 
 
