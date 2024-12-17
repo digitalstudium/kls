@@ -10,16 +10,16 @@ Supports mouse navigation as well as keyboard navigation.
 ## Key bindings
 ### For kubectl 
 You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a row #5:
-- `1` or `Enter` - get yaml of resource
-- `2` - describe resource
-- `3` - edit resource 
-- `4` - logs of pod
-- `5` - exec to pod
-- `6` - network debug of pod (with nicolaka/netshoot container attached)
+- `g` - get yaml of resource
+- `d` - describe resource
+- `e` - edit resource 
+- `l` - logs of pod
+- `Enter` - exec to pod
+- `n` - network debug of pod (with nicolaka/netshoot container attached)
 - `delete` - delete resource
 
 ### Other:
-- letters - enter filter mode and apply filter
+- / - enter filter mode
 - `Escape` - exit filter mode or `kls` itself
 - `Backspace` - remove letter from filter
 - `TAB`, arrow keys, `PgUp`, `PgDn`, `Home`, `End` - navigation

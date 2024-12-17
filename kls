@@ -3,21 +3,20 @@ import subprocess, curses, time
 
 # constants
 KEY_BINDINGS = {  # can be extended
-    "1": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml',
-    "\n": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml',  # Enter key
-    "2": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml',
-    "3": 'kubectl -n {namespace} edit {api_resource} {resource}',
-    "4": 'kubectl -n {namespace} logs {resource} | batcat -l log',
-    "5": 'kubectl -n {namespace} exec -it {resource} sh',
-    "6": 'kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot',
+    "y": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml',
+    "d": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml',
+    "e": 'kubectl -n {namespace} edit {api_resource} {resource}',
+    "l": 'kubectl -n {namespace} logs {resource} | batcat -l log',
+    "\n": 'kubectl -n {namespace} exec -it {resource} sh',
+    "n": 'kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot', # network debug
     "KEY_DC": 'kubectl -n {namespace} delete {api_resource} {resource}'  # KEY_DC is the delete key
 }
 BATCAT_STYLE = " --paging always --style numbers"
 # which api resources are on the top of menu?
 TOP_API_RESOURCES = ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "ingresses", "nodes",
                      "deployments", "statefulsets", "daemonsets",  "storageclasses"]
-HELP_TEXT = ("letters: filter mode, Esc: exit filter mode or exit kls, 1/Enter: get yaml, 2: describe, 3: edit, "
-             "4: logs, 5: exec, 6: debug, arrows/TAB/PgUp/PgDn: navigation")
+HELP_TEXT = ("/ : filter mode, Esc: exit filter mode or exit kls, Enter: exec into pod, d: describe, e: edit, "
+             "l: logs, n: network debug, arrows/TAB/PgUp/PgDn: navigation")
 MOUSE_ENABLED = False
 SCREEN = curses.initscr()  # screen initialization, needed for ROWS_HEIGHT working
 HEADER_HEIGHT = 4  # in rows
@@ -46,6 +45,7 @@ class Menu:
         self.title = title
         self.rows = rows  # all rows
         self.filter = ""  # filter for rows
+        self.filter_mode = False  # Tracks whether filter mode is active
         self.filtered_rows = CircularList([x for x in self.rows if self.filter in x])  # filtered rows
         self.visible_rows = lambda: self.filtered_rows[:rows_height]  # visible rows
         self.visible_row_index = 0  # index of the selected visible row
@@ -72,19 +72,22 @@ def draw_menu(menu: Menu):
     menu.win.erase()  # clear menu window
     draw_row(menu.win, menu.title, 1, 2, selected=True if menu == selected_menu else False)  # draw title
     draw_rows(menu)  # draw menu rows
-    draw_row(menu.win, f"/{menu.filter}" if menu.filter else "", curses.LINES - FOOTER_HEIGHT - 2, 2)  # draw filter row
+    draw_row(menu.win, f"/{menu.filter}" if menu.filter_mode else "", curses.LINES - FOOTER_HEIGHT - 2, 2)  # draw filter row
 
 
-def refresh_third_menu(namespace: str, api_resource: str):
+def refresh_third_menu(namespace, api_resource):
     menu = menus[2]
     previous_menu_rows = menu.rows
     if api_resource and namespace:
-        menu.rows = kubectl(f"-n {namespace} get {api_resource} --no-headers --ignore-not-found")
-        index_before_update = menu.filtered_rows.index
-        menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
-        menu.filtered_rows.index = index_before_update
+        try:
+            menu.rows = kubectl(f"-n {namespace} get {api_resource} --no-headers --ignore-not-found")
+        except subprocess.CalledProcessError:
+            menu.rows = []  # Fallback to an empty list if the command fails
     else:
         menu.rows = []
+    index_before_update = menu.filtered_rows.index
+    menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
+    menu.filtered_rows.index = index_before_update
     if menu.visible_row_index >= len(menu.visible_rows()):
         menu.visible_row_index = 0
     if previous_menu_rows != menu.rows:
@@ -94,7 +97,7 @@ def refresh_third_menu(namespace: str, api_resource: str):
 def handle_key_bindings(key: str, namespace: str, api_resource: str, resource: str):
     if not resource:
         return
-    if key in ("4", "5", "6") and api_resource != "pods" and not resource.startswith("pod/"):
+    if key in ("l", "\n", "n") and api_resource != "pods" and not resource.startswith("pod/"):
         return
     curses.def_prog_mode()  # save the previous terminal state
     curses.endwin()  # without this, there are problems after exiting vim
@@ -108,21 +111,26 @@ def handle_key_bindings(key: str, namespace: str, api_resource: str, resource: s
 
 
 def handle_filter_state(key: str, menu: Menu):
-    if key in ["KEY_BACKSPACE", "\x08"] and not menu.filter:
-        return
-    elif key == "\x1b" and not menu.filter:
-        globals().update(selected_menu=None)  # exit
-    elif key == "\x1b":
-        menu.filter = ""  # Escape key exits filter mode
-    elif key in ["KEY_BACKSPACE", "\x08"]:
-        menu.filter = menu.filter[:-1]  # Backspace key deletes a character (\x08 is also Backspace)
-    elif key.isalpha() or key == "-":
-        menu.filter += key.lower()
+    if key == "/" and not menu.filter_mode:  # Enter filter mode
+        menu.filter_mode = True
+        menu.filter = ""
+    elif key == "\x1b":  # Escape key
+        if menu.filter_mode:  # Exit filter mode
+            menu.filter_mode = False
+            menu.filter = ""
+        else:
+            globals().update(selected_menu=None)  # Exit program
+    elif menu.filter_mode:  # Only process filter input in filter mode
+        if key in ["KEY_BACKSPACE", "\x08"]:
+            menu.filter = menu.filter[:-1]  # Remove last character
+        elif key.isalnum() or key == "-":  # Allow letters, numbers, and dashes
+            menu.filter += key.lower()
     menu.visible_row_index = 0
     menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
     draw_menu(menu)
     if menu != menus[2]:
         menus[2].visible_row_index = 0  # reset the visible row index of third menu before redrawing
+
 
 
 def handle_mouse(menu: Menu):
@@ -202,7 +210,7 @@ def catch_input(menu: Menu):
         handle_mouse(menu)
     elif key in KEY_BINDINGS.keys():
         handle_key_bindings(key, namespace(), api_resource(), resource())
-    elif key in ["\x1b", "KEY_BACKSPACE", "\x08"] or key.isalpha() or key == "-":  # \x1b - escape, \x08 - backspace
+    elif key in ["/", "\x1b", "KEY_BACKSPACE", "\x08"] or key.isalnum() or key == "-":  # \x1b - escape, \x08 - backspace
         handle_filter_state(key, menu)
 
 
