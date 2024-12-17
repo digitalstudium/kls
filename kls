@@ -222,7 +222,11 @@ def init_menus():
     api_resources = list(
         dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl))  # so top api resources are at the top
     width_unit = WIDTH // 8
-    menus = [Menu("Namespaces", kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name"), 0, width_unit, ROWS_HEIGHT),
+    try:
+        namespaces = kubectl("get ns --no-headers -o custom-columns=NAME:.metadata.name")
+    except:
+        namespaces = kubectl("config view --minify --output 'jsonpath={..namespace}'")  # if it is forbidden to list all namespaces
+    menus = [Menu("Namespaces", namespaces, 0, width_unit, ROWS_HEIGHT),
              Menu("API resources", api_resources, width_unit, width_unit * 2, ROWS_HEIGHT),
              Menu("Resources", [], width_unit * 3, WIDTH - width_unit * 3, ROWS_HEIGHT)]
     selected_menu = menus[0]
