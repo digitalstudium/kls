@@ -4,53 +4,68 @@ import curses
 import curses.ascii
 import asyncio
 
+# ****************************** #
+# START OF CONFIGURATION SECTION #
+# ****************************** #
 KEY_BINDINGS = {  # can be extended
-    "^Y": {
-        "description": "View resource in YAML format",
+    "^Y": {  # Ctrl + y
+        "description": "view YAML",
         "command": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml'
     },
-    "^D": {
-        "description": "Describe resource",
+    "^D": {  # Ctrl + d
+        "description": "describe",
         "command": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml'
     },
-    "^E": {
-        "description": "Edit resource",
+    "^E": {  # Ctrl + e
+        "description": "edit",
         "command": 'kubectl -n {namespace} edit {api_resource} {resource}'
     },
-    "^L": {
-        "description": "View logs",
-        "command": 'kubectl -n {namespace} logs {resource} | batcat -l log'
+    "^L": {  # Ctrl + l
+        "description": "view logs",
+        "command": 'kubectl -n {namespace} logs {resource} | lnav'
     },
-    "^X": {
-        "description": "Exec into pod",
+    "^X": {  # Ctrl + x
+        "description": "exec pod",
         "command": 'kubectl -n {namespace} exec -it {resource} sh'
     },
-    "^N": {
-        "description": "Network debug",
+    "^N": {  # Ctrl + n
+        "description": "network debug",
         "command": 'kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot'
     },
-    "KEY_DC": {
-        "description": "Delete resource",
+    "Delete": {  # It is actually KEY_DC
+        "description": "delete",
         "command": 'kubectl -n {namespace} delete {api_resource} {resource}'
+    },
+    "^P": {  # Ctrl + p  (p means proxy! :-))
+        "description": "exec istio-proxy",
+        "command": 'kubectl -n {namespace} exec -it {resource} -c istio-proxy bash'
+    },
+    "^R": {  # Ctrl + r  (r means reveal! :-))
+        "description": "reveal secret",
+        "command": "kubectl get secret {resource} -n {namespace} -o yaml | yq '.data |= with_entries(.value |= @base64d)' -y | batcat -l yaml"
     }
 }
-
-BATCAT_STYLE = " --paging always --style numbers"
 # which api resources are on the top of menu?
 TOP_API_RESOURCES = ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "ingresses", "nodes",
                      "deployments", "statefulsets", "daemonsets", "storageclasses", "serviceentries",
-                     "destinationrules", "virtualservices", "gateways"]
+                     "destinationrules", "virtualservices", "gateways", "telemetry"]
+QUERY_API_RESOURCES = False  # Should we merge TOP_API_RESOURCES with all other api resources from cluster?
+BATCAT_STYLE = " --paging always --style numbers"  # style of batcat
+MOUSE_ENABLED = False
+# **************************** #
+# END OF CONFIGURATION SECTION #
+# **************************** #
+
 # Dynamically generate HELP_TEXT based on KEY_BINDINGS descriptions
 HELP_TEXT = ", ".join(f"{key}: {binding['description']}" for key, binding in KEY_BINDINGS.items())
 HELP_TEXT += ", /: filter mode, Esc: exit filter mode or exit kls, arrows/TAB/PgUp/PgDn: navigation"
-
-MOUSE_ENABLED = False
 SCREEN = curses.initscr()  # screen initialization, needed for ROWS_HEIGHT working
 HEADER_HEIGHT = 4  # in rows
 FOOTER_HEIGHT = 3
 ROWS_HEIGHT = curses.LINES - HEADER_HEIGHT - FOOTER_HEIGHT - 3  # maximum number of visible rows indices
 WIDTH = curses.COLS
-QUERY_API_RESOURCES = False
+THIRD_MENU_LOCK = asyncio.Lock()
+THIRD_MENU_TASK = None  # It needs to be global because we should have ability to cancel it from anywhere
 
 
 # classes
@@ -105,38 +120,52 @@ def draw_menu(menu: Menu):
 
 
 async def refresh_third_menu(namespace, api_resource):
-    menu = menus[2]
-    previous_menu_rows = menu.rows
-    if api_resource and namespace:
-        try:
-            menu.rows = await kubectl_async(f"-n {namespace} get {api_resource} --no-headers --ignore-not-found")
-        except subprocess.CalledProcessError:
-            menu.rows = []  # Fallback to an empty list if the command fails
-    else:
-        menu.rows = []
-    index_before_update = menu.filtered_rows.index
-    menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
-    menu.filtered_rows.index = index_before_update
-    if menu.visible_row_index >= len(menu.visible_rows()):
-        menu.visible_row_index = 0
-    if previous_menu_rows != menu.rows:
-        draw_menu(menu)
+    try:
+        async with THIRD_MENU_LOCK:
+            menu = menus[2]
+            previous_menu_rows = menu.rows
+            if api_resource and namespace:
+                try:
+                    menu.rows = await kubectl_async(
+                        f"-n {namespace} get {api_resource} --no-headers --ignore-not-found")
+                except subprocess.CalledProcessError:
+                    menu.rows = []  # Fallback to an empty list if the command fails
+            else:
+                menu.rows = []
+            index_before_update = menu.filtered_rows.index
+            menu.filtered_rows = CircularList([x for x in menu.rows if menu.filter in x])  # update filtered rows
+            menu.filtered_rows.index = index_before_update
+            if menu.visible_row_index >= len(menu.visible_rows()):
+                menu.visible_row_index = 0
+            if previous_menu_rows != menu.rows:
+                draw_menu(menu)
+    except asyncio.CancelledError:
+        raise
 
 
 async def handle_key_bindings(key: str, namespace: str, api_resource: str, resource: str):
     if not resource:
         return
-    if key in ("l", "x", "n") and api_resource != "pods" and not resource.startswith("pod/"):
+    if key in ("l", "x", "n") and api_resource != "pods":
         return
-    curses.def_prog_mode()  # save the previous terminal state
-    curses.endwin()  # without this, there are problems after exiting vim
-    command = KEY_BINDINGS[key]["command"].format(namespace=namespace, api_resource=api_resource, resource=resource)
-    if "batcat" in command:
-        command += BATCAT_STYLE
-    await subprocess_call_async(command)
-    curses.reset_prog_mode()  # restore the previous terminal state
-    SCREEN.refresh()
-    enable_mouse_support()
+    if key == "KEY_DC":
+        key = "Delete"
+    if THIRD_MENU_TASK is not None:
+        THIRD_MENU_TASK.cancel()
+        try:
+            await THIRD_MENU_TASK
+        except asyncio.CancelledError:
+            pass
+    async with THIRD_MENU_LOCK:
+        curses.def_prog_mode()  # save the previous terminal state
+        curses.endwin()  # without this, there are problems after exiting vim
+        command = KEY_BINDINGS[key]["command"].format(namespace=namespace, api_resource=api_resource, resource=resource)
+        if "batcat" in command:
+            command += BATCAT_STYLE
+        await subprocess_call_async(command)
+        curses.reset_prog_mode()  # restore the previous terminal state
+        SCREEN.refresh()
+        enable_mouse_support()
 
 
 async def handle_filter_state(key: str, menu: Menu):
@@ -150,7 +179,7 @@ async def handle_filter_state(key: str, menu: Menu):
         else:
             globals().update(selected_menu=None)  # Exit program
     elif menu.filter_mode:  # Only process filter input in filter mode
-        if key in ["KEY_BACKSPACE", "\x08"]:
+        if key in ["KEY_BACKSPACE", "\x08"] and menu.filter:
             menu.filter = menu.filter[:-1]  # Remove last character
         elif key.isalnum() or key == "-":  # Allow letters, numbers, and dashes
             menu.filter += key.lower()
@@ -251,36 +280,45 @@ async def get_key_async(popup: curses.window) -> str:
     return await asyncio.to_thread(popup.getkey)
 
 
+async def kubectl_async(command: str) -> list:
+    process = await asyncio.create_subprocess_shell(
+        f"kubectl {command} 2> /dev/null", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await process.communicate()
+    if stderr:
+        raise subprocess.CalledProcessError(process.returncode, command, stderr=stderr)
+    return stdout.decode().strip().split("\n")
+
+
 async def catch_input(menu: Menu):
+    global THIRD_MENU_TASK
     while True:  # refresh third menu until key pressed
         try:
             key = await get_key_async(SCREEN)
             break
         except curses.error:
-            await refresh_third_menu(namespace(), api_resource())
+            if THIRD_MENU_TASK is None or THIRD_MENU_TASK.done() or THIRD_MENU_TASK.cancelled():
+                THIRD_MENU_TASK = asyncio.create_task(refresh_third_menu(namespace(), api_resource()))
             await asyncio.sleep(0.1)
     if key in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]:
         await handle_horizontal_navigation(key, menu)
     elif key in ["KEY_UP", "KEY_DOWN", "KEY_NPAGE", "KEY_PPAGE", "KEY_HOME", "KEY_END"]:
+        if THIRD_MENU_TASK is not None:
+            THIRD_MENU_TASK.cancel()
+            try:
+                # Wait for the THIRD_MENU_TASK to handle cancellation
+                await THIRD_MENU_TASK
+            except asyncio.CancelledError:
+                pass
         await handle_vertical_navigation(key, menu)
     elif key == "KEY_MOUSE":
         await handle_mouse(menu)
     elif key == "KEY_DC" and await confirm_action("Are you sure you want to delete this resource?"):
         await handle_key_bindings(key, namespace(), api_resource(), resource())
-    elif key != "KEY_DC" and curses.ascii.unctrl(key) in KEY_BINDINGS.keys():
-        await handle_key_bindings(curses.ascii.unctrl(key), namespace(), api_resource(), resource())
     elif key in ["/", "\x1b", "KEY_BACKSPACE", "\x08"] or key.isalnum() or key == "-":
         await handle_filter_state(key, menu)
-
-
-async def kubectl_async(command: str) -> list:
-    result = await asyncio.create_subprocess_shell(
-        f"kubectl {command} 2> /dev/null", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await result.communicate()
-    if stderr:
-        raise subprocess.CalledProcessError(result.returncode, command, stderr=stderr)
-    return stdout.decode().strip().split("\n")
+    elif key != "KEY_DC" and curses.ascii.unctrl(key) in KEY_BINDINGS.keys():
+        await handle_key_bindings(curses.ascii.unctrl(key), namespace(), api_resource(), resource())
 
 
 async def subprocess_call_async(command: str):
@@ -297,13 +335,24 @@ def enable_mouse_support():
 async def init_menus():
     global menus, selected_menu, namespace, api_resource, resource
     api_resources_kubectl = [x.split()[0] for x in await kubectl_async("api-resources --no-headers --verbs=get")]
-    api_resources = list(dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl)) if QUERY_API_RESOURCES else TOP_API_RESOURCES
+    api_resources = list(
+        dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl)) if QUERY_API_RESOURCES else TOP_API_RESOURCES
     width_unit = WIDTH // 8
+    namespaces = []
     try:
-        namespaces = await kubectl_async("get ns --no-headers -o custom-columns=NAME:.metadata.name")
+        namespaces = await kubectl_async("config view --minify --output 'jsonpath={..namespace}'")
     except:
-        namespaces = await kubectl_async(
-            "config view --minify --output 'jsonpath={..namespace}'")
+        pass
+    try:
+        all_namespaces = await kubectl_async("get ns --no-headers -o custom-columns=NAME:.metadata.name")
+        if all_namespaces:
+            if namespaces:
+                all_namespaces.remove(namespaces[0])
+                namespaces = namespaces + all_namespaces
+            else:
+                namespaces = all_namespaces
+    except:
+        pass
     menus = [Menu("Namespaces", namespaces, 0, width_unit, ROWS_HEIGHT),
              Menu("API resources", api_resources, width_unit, width_unit * 2, ROWS_HEIGHT),
              Menu("Resources", [], width_unit * 3, WIDTH - width_unit * 3, ROWS_HEIGHT)]
@@ -328,6 +377,7 @@ async def main_async(screen):
     draw_row(curses.newwin(3, curses.COLS, curses.LINES - FOOTER_HEIGHT, 0), HELP_TEXT, 1, 2)
     while selected_menu:
         await catch_input(selected_menu)
+
 
 def main(screen):
     asyncio.run(main_async(screen))

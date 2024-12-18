@@ -4,12 +4,12 @@
 `kls` is a cli tool based on `kubectl` for managing kubernetes cluster resources. 
 Inspired by `lf` and `ranger` file managers, written in python. 
 
-It is lightweight (~300 lines of code) and easy to customize.
-Supports keyboard navigation and mouse navigation could be enabled (set MOUSE_ENABLED=True in a line #47).
+It is lightweight (~400 lines of code) and easy to customize.
+Supports keyboard navigation and mouse navigation could be enabled (set MOUSE_ENABLED=True in a line #54).
 
 ## Key bindings
 ### For kubectl 
-You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a line #7:
+You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a line #10:
 - `Ctrl+y` - get yaml of resource
 - `Ctrl+d` - describe resource
 - `Ctrl+e` - edit resource 
@@ -29,12 +29,14 @@ You can customize these bindings or add extra bindings in `KEY_BINDINGS` variabl
 ## Dependencies
 - `python3`
 - `kubectl`
-- `bat`
+- `bat` - yaml viewer
+- `lnav` - log viewer
+- `yq` - yaml manipulation
 
 ## Installation
 Install `batcat`:
 ```
-sudo apt install bat -y
+sudo apt install bat lnav yq -y
 ```
 Download and install the latest `kls`:
 ```
