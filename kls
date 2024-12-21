@@ -424,7 +424,7 @@ async def main_async() -> None:
         await catch_input(selected_menu)
 
 
-def main() -> None:
+def main(screen: curses.window) -> None:
     asyncio.run(main_async())
 
 
