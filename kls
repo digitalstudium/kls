@@ -10,44 +10,44 @@ import asyncio
 # ****************************** #
 KEY_BINDINGS: dict[str, dict[str, str]] = {  # can be extended
     "^Y": {  # Ctrl + y
-        "description": "view YAML",
+        "description": "Yaml",
         "command": 'kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml'
     },
     "^D": {  # Ctrl + d
-        "description": "describe",
+        "description": "Describe",
         "command": 'kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml'
     },
     "^E": {  # Ctrl + e
-        "description": "edit",
+        "description": "Edit",
         "command": 'kubectl -n {namespace} edit {api_resource} {resource}'
     },
     "^L": {  # Ctrl + l
-        "description": "view logs",
+        "description": "Logs",
         "command": 'kubectl -n {namespace} logs {resource} | lnav'
     },
     "^X": {  # Ctrl + x
-        "description": "exec pod",
+        "description": "eXec",
         "command": 'kubectl -n {namespace} exec -it {resource} sh'
     },
     "^N": {  # Ctrl + n
-        "description": "network debug",
+        "description": "Network debug",
         "command": 'kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot'
     },
-    "Delete": {  # It is actually KEY_DC
-        "description": "delete",
-        "command": 'kubectl -n {namespace} delete {api_resource} {resource}'
-    },
-    "^A": {  # Ctrl + a  (a means access! :-))
-        "description": "istio-proxy access logs",
+    "^A": {  # Ctrl + a  (a means Access logs! :-))
+        "description": "istio-proxy Access logs",
         "command": 'kubectl -n {namespace} logs {resource} -c istio-proxy | lnav'
     },
-    "^P": {  # Ctrl + p  (p means proxy! :-))
-        "description": "exec istio-proxy",
+    "^P": {  # Ctrl + p  (p means Proxy! :-))
+        "description": "exec istio-Proxy",
         "command": 'kubectl -n {namespace} exec -it {resource} -c istio-proxy bash'
     },
-    "^R": {  # Ctrl + r  (r means reveal! :-))
-        "description": "reveal secret",
+    "^R": {  # Ctrl + r  (r means Reveal! :-))
+        "description": "Reveal secret",
         "command": "kubectl get secret {resource} -n {namespace} -o yaml | yq '.data |= with_entries(.value |= @base64d)' -y | batcat -l yaml"
+    },
+    "Delete": {  # It is actually KEY_DC
+        "description": "Delete",
+        "command": 'kubectl -n {namespace} delete {api_resource} {resource}'
     }
 }
 
@@ -56,7 +56,7 @@ TOP_API_RESOURCES: list[str] = [
     "pods", "services", "configmaps", "secrets", "persistentvolumeclaims",
     "ingresses", "nodes", "deployments", "statefulsets", "daemonsets",
     "storageclasses", "serviceentries", "destinationrules",
-    "virtualservices", "gateways", "telemetry"
+    "virtualservices", "gateways", "telemetry", "envoyfilters"
 ]
 
 QUERY_API_RESOURCES: bool = False  # Should we merge TOP_API_RESOURCES with all other api resources from cluster?
@@ -95,14 +95,14 @@ class Menu:
         self.selected_row: Callable[[], Optional[str]] = lambda: self.visible_rows()[
             self.visible_row_index] if self.visible_rows() else None
         self.rows_height: int = rows_height
-        self.width: int = width
-        self.begin_x: int = begin_x
-        self.win: curses.window = curses.newwin(curses.LINES - FOOTER_HEIGHT, width, 0, begin_x)
+        self.width: int = int(width)
+        self.begin_x: int = int(begin_x)
+        self.win: curses.window = curses.newwin(curses.LINES - FOOTER_HEIGHT, self.width, 0, self.begin_x)
 
 
 # Generate HELP_TEXT from KEY_BINDINGS
 HELP_TEXT: str = ", ".join(f"{key}: {binding['description']}" for key, binding in KEY_BINDINGS.items())
-HELP_TEXT += ", /: filter mode, Esc: exit filter mode or exit kls, arrows/TAB/PgUp/PgDn: navigation"
+HELP_TEXT += ", /: filter mode, Esc: exit filter mode or kls, arrows/TAB/PgUp/PgDn: navigation"
 
 # Global variables
 SCREEN: curses.window = curses.initscr()
@@ -396,8 +396,8 @@ async def init_menus() -> None:
         pass
 
     menus = [
-        Menu("Namespaces", namespaces, 0, width_unit, ROWS_HEIGHT),
-        Menu("API resources", api_resources, width_unit, width_unit * 2, ROWS_HEIGHT),
+        Menu("Namespaces", namespaces, 0, width_unit * 1.5, ROWS_HEIGHT),
+        Menu("API resources", api_resources, width_unit * 1.5, width_unit * 1.5, ROWS_HEIGHT),
         Menu("Resources", [], width_unit * 3, WIDTH - width_unit * 3, ROWS_HEIGHT)
     ]
     selected_menu = menus[0]
