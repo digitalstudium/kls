@@ -5,6 +5,10 @@ import curses
 import curses.ascii
 import asyncio
 
+
+SCREEN: curses.window = curses.initscr()
+
+
 # ****************************** #
 # START OF CONFIGURATION SECTION #
 # ****************************** #
@@ -62,7 +66,17 @@ TOP_API_RESOURCES: list[str] = [
 QUERY_API_RESOURCES: bool = False  # Should we merge TOP_API_RESOURCES with all other api resources from cluster?
 BATCAT_STYLE: str = " --paging always --style numbers"  # style of batcat
 MOUSE_ENABLED: bool = False
-
+WIDTH: int = curses.COLS
+WIDTH_UNIT: int = int(WIDTH / 8)
+NAMESPACES_WIDTH = int(WIDTH_UNIT * 1.5)
+API_RESOURCES_WIDTH = int(WIDTH_UNIT * 1.5)
+RESOURCES_WIDTH = WIDTH - (API_RESOURCES_WIDTH + NAMESPACES_WIDTH)
+HEADER_HEIGHT: int = 4
+FOOTER_HEIGHT: int = 3
+ROWS_HEIGHT: int = curses.LINES - HEADER_HEIGHT - FOOTER_HEIGHT - 3
+# Generate HELP_TEXT from KEY_BINDINGS
+HELP_TEXT: str = ", ".join(f"{key}: {binding['description']}" for key, binding in KEY_BINDINGS.items())
+HELP_TEXT += ", /: filter mode, Esc: exit filter mode or kls, arrows/TAB/PgUp/PgDn: navigation"
 
 # **************************** #
 # END OF CONFIGURATION SECTION #
@@ -89,7 +103,7 @@ class Menu:
         self.rows: list[str] = rows
         self.filter: str = ""
         self.filter_mode: bool = False
-        self.filtered_rows: Circularlist[str] = CircularList([x for x in self.rows if self.filter in x])
+        self.filtered_rows: CircularList = CircularList([x for x in self.rows if self.filter in x])
         self.visible_rows: Callable[[], list[str]] = lambda: self.filtered_rows[:rows_height]
         self.visible_row_index: int = 0
         self.selected_row: Callable[[], Optional[str]] = lambda: self.visible_rows()[
@@ -100,16 +114,7 @@ class Menu:
         self.win: curses.window = curses.newwin(curses.LINES - FOOTER_HEIGHT, self.width, 0, self.begin_x)
 
 
-# Generate HELP_TEXT from KEY_BINDINGS
-HELP_TEXT: str = ", ".join(f"{key}: {binding['description']}" for key, binding in KEY_BINDINGS.items())
-HELP_TEXT += ", /: filter mode, Esc: exit filter mode or kls, arrows/TAB/PgUp/PgDn: navigation"
-
 # Global variables
-SCREEN: curses.window = curses.initscr()
-HEADER_HEIGHT: int = 4
-FOOTER_HEIGHT: int = 3
-ROWS_HEIGHT: int = curses.LINES - HEADER_HEIGHT - FOOTER_HEIGHT - 3
-WIDTH: int = curses.COLS
 THIRD_MENU_LOCK: asyncio.Lock = asyncio.Lock()
 THIRD_MENU_TASK: Optional[asyncio.Task] = None
 menus: list[Menu] = []
@@ -377,7 +382,6 @@ async def init_menus() -> None:
         dict.fromkeys(TOP_API_RESOURCES + api_resources_kubectl)
     ) if QUERY_API_RESOURCES else TOP_API_RESOURCES
 
-    width_unit = WIDTH // 8
     namespaces: list[str] = []
     try:
         namespaces = await kubectl_async("config view --minify --output 'jsonpath={..namespace}'")
@@ -396,9 +400,9 @@ async def init_menus() -> None:
         pass
 
     menus = [
-        Menu("Namespaces", namespaces, 0, width_unit * 1.5, ROWS_HEIGHT),
-        Menu("API resources", api_resources, width_unit * 1.5, width_unit * 1.5, ROWS_HEIGHT),
-        Menu("Resources", [], width_unit * 3, WIDTH - width_unit * 3, ROWS_HEIGHT)
+        Menu("Namespaces", namespaces, 0, NAMESPACES_WIDTH, ROWS_HEIGHT),
+        Menu("API resources", api_resources, NAMESPACES_WIDTH, API_RESOURCES_WIDTH, ROWS_HEIGHT),
+        Menu("Resources", [], NAMESPACES_WIDTH + API_RESOURCES_WIDTH, RESOURCES_WIDTH, ROWS_HEIGHT)
     ]
     selected_menu = menus[0]
 

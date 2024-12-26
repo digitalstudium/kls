@@ -6,25 +6,24 @@
 Inspired by `lf` and `ranger` file managers, written in python.
 
 It is lightweight (~400 lines of code) and easy to customize.
-Supports keyboard navigation and mouse navigation could be enabled (set MOUSE_ENABLED=True in a line #64).
+Supports keyboard navigation and mouse navigation could be enabled (set MOUSE_ENABLED=True in a line #68).
 
 ## Key bindings
 
 ### For kubectl
 
-You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a line #11:
+You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a line #15:
 
-- `Ctrl+y` - get yaml of resource
-- `Ctrl+d` - describe resource
-- `Ctrl+e` - edit resource
-- `Ctrl+l` - logs of pod
-- `Ctrl+x` - exec into pod
-- `Ctrl+n` - network debug of pod (with nicolaka/netshoot container attached)
+- `Ctrl+y` - get **Y**aml of resource
+- `Ctrl+d` - **D**escribe resource
+- `Ctrl+e` - **E**dit resource
+- `Ctrl+l` - **L**ogs of pod
+- `Ctrl+x` - e**X**ec into pod
+- `Ctrl+n` - **N**etwork debug of pod (with nicolaka/netshoot container attached)
+- `Ctrl+a` - **A**ccess logs of istio sidecar
+- `Ctrl+p` - exec into istio-**P**roxy sidecar
+- `Ctrl+r` - **R**eveal base64 secret values
 - `delete` - delete resource
-- `Ctrl+a` - access logs of istio sidecar
-- `Ctrl+p` - exec into istio sidecar
-- `Ctrl+r` - reveal base64 secret values
-- `Ctrl+x` - exec into pod
 
 ### Other:
 
@@ -45,7 +44,7 @@ You can customize these bindings or add extra bindings in `KEY_BINDINGS` variabl
 
 ## Installation
 
-Install `batcat`:
+Install `batcat` and other dependencies:
 
 ```
 sudo apt install bat lnav yq -y
