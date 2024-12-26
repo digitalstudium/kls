@@ -84,7 +84,7 @@ class CircularList:
 
 
 class Menu:
-    def __init__(self, title: str, rows: list[str], begin_x: int, width: int, rows_height: int):
+    def __init__(self, title: str, rows: list[str], begin_x: int|float, width: int|float, rows_height: int):
         self.title: str = title
         self.rows: list[str] = rows
         self.filter: str = ""
@@ -124,12 +124,12 @@ def draw_row(window: curses.window, text: str, y: int, x: int, selected: bool = 
 
 def draw_rows(menu: Menu) -> None:
     for index, row in enumerate(menu.visible_rows()):
-        draw_row(menu.win, row, index + HEADER_HEIGHT, 2, selected=True if row == menu.selected_row() else False)
+        draw_row(menu.win, row, index + HEADER_HEIGHT, 2, selected = row == menu.selected_row())
 
 
 def draw_menu(menu: Menu) -> None:
     menu.win.erase()
-    draw_row(menu.win, menu.title, 1, 2, selected=True if menu == selected_menu else False)
+    draw_row(menu.win, menu.title, 1, 2, selected = menu == selected_menu)
     draw_rows(menu)
     draw_row(menu.win, f"/{menu.filter}" if menu.filter_mode else "", curses.LINES - FOOTER_HEIGHT - 2, 2)
 
@@ -289,7 +289,7 @@ async def confirm_action(message: str) -> bool:
         key = await get_key_async(popup)
         if key.lower() == 'y':
             return True
-        elif key.lower() == 'n':
+        if key.lower() == 'n':
             popup.clear()
             popup.refresh()
             return False
@@ -312,7 +312,7 @@ async def kubectl_async(command: str) -> list[str]:
 
 
 async def catch_input(menu: Menu) -> None:
-    global THIRD_MENU_TASK, selected_menu
+    global THIRD_MENU_TASK
     while True:
         try:
             key = await get_key_async(SCREEN)
@@ -348,7 +348,7 @@ async def catch_input(menu: Menu) -> None:
         )
     elif key in ["/", "\x1b", "KEY_BACKSPACE", "\x08"] or key.isalnum() or key == "-":
         handle_filter_state(key, menu)
-    elif key != "KEY_DC" and curses.ascii.unctrl(key) in KEY_BINDINGS.keys():
+    elif key != "KEY_DC" and curses.ascii.unctrl(key) in KEY_BINDINGS:
         await handle_key_bindings(
             curses.ascii.unctrl(key),
             menus[0].selected_row(),
