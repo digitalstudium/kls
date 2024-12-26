@@ -77,6 +77,7 @@ ROWS_HEIGHT: int = curses.LINES - HEADER_HEIGHT - FOOTER_HEIGHT - 3
 # Generate HELP_TEXT from KEY_BINDINGS
 HELP_TEXT: str = ", ".join(f"{key}: {binding['description']}" for key, binding in KEY_BINDINGS.items())
 HELP_TEXT += ", /: filter mode, Esc: exit filter mode or kls, arrows/TAB/PgUp/PgDn: navigation"
+SELECTED_ROW_STYLE = curses.A_REVERSE | curses.A_BOLD
 
 # **************************** #
 # END OF CONFIGURATION SECTION #
@@ -122,7 +123,7 @@ selected_menu: Optional[Menu] = None
 
 
 def draw_row(window: curses.window, text: str, y: int, x: int, selected: bool = False) -> None:
-    window.addstr(y, x, text, curses.A_REVERSE | curses.A_BOLD if selected else curses.A_NORMAL)
+    window.addstr(y, x, text, SELECTED_ROW_STYLE if selected else curses.A_NORMAL)
     window.clrtoeol()
     window.refresh()
 
