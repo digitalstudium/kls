@@ -59,7 +59,7 @@ KEY_BINDINGS: dict[str, dict[str, str]] = {  # can be extended
 TOP_API_RESOURCES: list[str] = [
     "pods", "services", "configmaps", "secrets", "persistentvolumeclaims",
     "ingresses", "nodes", "deployments", "statefulsets", "daemonsets",
-    "storageclasses", "serviceentries", "destinationrules",
+    "storageclasses", "serviceentries", "destinationrules", "authorizationpolicies",
     "virtualservices", "gateways", "telemetry", "envoyfilters"
 ]
 
@@ -78,6 +78,7 @@ ROWS_HEIGHT: int = curses.LINES - HEADER_HEIGHT - FOOTER_HEIGHT - 3
 HELP_TEXT: str = ", ".join(f"{key}: {binding['description']}" for key, binding in KEY_BINDINGS.items())
 HELP_TEXT += ", /: filter mode, Esc: exit filter mode or kls, arrows/TAB/PgUp/PgDn: navigation"
 SELECTED_ROW_STYLE = curses.A_REVERSE | curses.A_BOLD
+ALLOWED_SPECIAL_KEYS = list(KEY_BINDINGS.keys()) + ["KEY_DC", "/", "\x1b", "KEY_BACKSPACE", "\x08", "KEY_MOUSE", "KEY_UP", "KEY_DOWN", "KEY_NPAGE", "KEY_PPAGE", "KEY_HOME", "KEY_END", "\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]
 
 # **************************** #
 # END OF CONFIGURATION SECTION #
@@ -332,6 +333,18 @@ async def catch_input(menu: Menu) -> None:
                     )
                 )
             await asyncio.sleep(0.1)
+    # Convert control keys to their string representation (e.g., Ctrl+Y -> ^Y)
+    # Handle special keys (e.g., "KEY_UP", "KEY_DC")
+    if key.startswith("KEY_") or key == "\x1b":
+        key_str = key  # Use the key as-is for special keys
+    else:
+        # Handle single-character keys (e.g., "a", "^Y")
+        key_str = curses.ascii.unctrl(key) if curses.ascii.iscntrl(ord(key)) else key
+    # Check if the key is allowed
+    if key_str not in ALLOWED_SPECIAL_KEYS and not key.isalnum():
+        return  # Ignore the key if it's not in the allowed list or not alphanumeric
+    if key.isalnum() and not menu.filter_mode:
+        return
 
     if key in ["\t", "KEY_RIGHT", "KEY_BTAB", "KEY_LEFT"]:
         handle_horizontal_navigation(key, menu)
