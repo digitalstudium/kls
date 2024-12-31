@@ -1,0 +1,57 @@
+digraph fsm {
+
+    // Create states cluster for l1, l2, l3
+    subgraph cluster_states {
+rankdir="LR"
+        label = "States";
+        style=filled;
+		color=lightgrey;
+		node [style=filled,color=white];
+
+        l1 [label = "Normal state"];
+        l2 [label = "Filter state\n(empty filter)"];
+        l3 [label = "Filter state\n(non-empty filter)"];
+    }
+
+    // Other nodes
+    exit [label = "Exit"];
+    i1 [label = "Other menu"];
+    e1 [label = "External program"];
+
+
+    // Transitions
+    l1 -> exit [label = "E"];
+
+    // Mode switches
+    l1 -> l2 [label = "S"];
+    l2 -> l3 [label = "A"];
+    l2 -> l1 [label = "E"];
+    l3 -> l1 [label = "E"];
+    l3 -> l2 [label = "B"];
+
+    // Horizontal navigation
+    l1 -> i1 [label = "H"];
+    l2 -> i1 [label = "H"];
+    l3 -> i1 [label = "H"];
+
+    // External program
+    l1 -> e1 [label = "K"];
+    l2 -> e1 [label = "K"];
+    l3 -> e1 [label = "K"];
+
+    // Self-loops
+    l1 -> l1 [label = "V"];
+    l2 -> l2 [label = "V"];
+    l3 -> l3 [label = "V"];
+    l3 -> l3 [label = "A"];
+    l3 -> l3 [label = "B"];
+
+    label = "Keys:\n\
+S - Slash (start filter)                   \l\
+E - Escape                                 \l\
+A - Type text                              \l\
+B - Backspace                              \l\
+H - Horizontal navigation (Right,Left,Tab) \l\
+V - Vertical navigation (Up, Down)         \l\
+K - Key binding                            \l"
+}

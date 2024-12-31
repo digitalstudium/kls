@@ -1,0 +1,2 @@
+1. Test all key bindings on pods, services and secrets
+2. Test filters

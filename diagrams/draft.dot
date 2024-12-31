@@ -1,0 +1,21 @@
+digraph {
+    newrank=true;
+    subgraph cluster_menu_states {
+        label="Menu States"
+        color=lightgrey;
+        style=filled;
+        node [style=filled,color=white];
+        Normal -> EmptyFilter [label = "S"];
+        EmptyFilter -> FilledFilter [label = "A"];
+        EmptyFilter -> Normal [label = "E"];
+        FilledFilter:ne -> Normal:se [label = "E"];
+        FilledFilter -> EmptyFilter [label = "B"];
+        FilledFilter:s -> FilledFilter:s [label = "B"];
+        FilledFilter:e -> FilledFilter:e [label = "A"];
+        FilledFilter:w -> FilledFilter:w [label = "V"];
+        EmptyFilter:w -> EmptyFilter:w [label = "V"];
+        Normal:w -> Normal:w [label = "V"];
+    }
+    { rank=same; Normal; Exit; }
+    Normal -> Exit [label = "E"];
+}

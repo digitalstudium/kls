@@ -6,13 +6,13 @@
 Inspired by `lf` and `ranger` file managers, written in python.
 
 It is lightweight (~400 lines of code) and easy to customize.
-Supports keyboard navigation and mouse navigation could be enabled (set MOUSE_ENABLED=True in a line #68).
+Supports keyboard navigation and mouse navigation could be enabled (set MOUSE_ENABLED=True in a line #69).
 
 ## Key bindings
 
 ### For kubectl
 
-You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a line #15:
+You can customize these bindings or add extra bindings in `KEY_BINDINGS` variable of `kls` in a line #14:
 
 - `Ctrl+y` - get **Y**aml of resource
 - `Ctrl+d` - **D**escribe resource

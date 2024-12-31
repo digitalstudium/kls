@@ -1,0 +1,63 @@
+digraph state_machine {
+    // Graph styling
+    rankdir=TB;
+    compound=true;
+    node [shape=record, style=filled, fillcolor=lightblue, fontsize=10];
+    edge [fontsize=9];
+
+    // States with entry/exit/activities
+    Normal [label="{Normal State|Entry: None\l\
+Activities:\l\
+• Wait for key input\l\
+• Handle state-independent navigation\l\
+Exit: None\l}"];
+
+    EmptyFilter [label="{EmptyFilter State|Entry: draw_footer(menu, '/')\l\
+Activities:\l\
+• Wait for key input\l\
+• Handle state-independent navigation\l\
+• Monitor for filter input\l\
+Exit: None\l}"];
+
+    FilledFilter [label="{FilledFilter State|Entry:\l\
+• Update filtered_rows\l\
+• Draw menu or footer with filter\l\
+Activities:\l\
+• Process filter input\l\
+• Update filtered_rows on changes\l\
+• Update display if visibility changes\l\
+• Handle state-independent navigation\l\
+Exit:\l\
+• Clear filter (on ESC)\l\
+• Update filtered_rows\l\
+• Update display\l}"];
+
+    // Exit node
+    exit [shape=doublecircle, fillcolor=lightpink, label="Exit\n(SELECTED_MENU = None)"];
+
+    // Initial state indicator
+    start [shape=point, fillcolor=black];
+    start -> Normal;
+
+    // Transitions
+    Normal -> EmptyFilter [label="/ (slash)\nAction: Initialize empty filter"];
+    Normal -> exit [label="ESC\nAction: Clear selection"];
+
+    EmptyFilter -> Normal [label="ESC\nAction: draw_footer('')"];
+    EmptyFilter -> FilledFilter [label="alnum or -\nActions:\n• Add char to filter\n• Create filtered_rows\n• Update display"];
+
+    FilledFilter -> Normal [label="ESC\nActions:\n• Clear filter\n• Reset filtered_rows\n• Update display"];
+    FilledFilter -> EmptyFilter [label="BACKSPACE\n(when filter empty)\nAction: draw_footer('/')"];
+    FilledFilter -> FilledFilter [label="alnum or -\nActions:\n• Add char to filter\n• Update filtered_rows\n• Update display"];
+
+    // State-independent actions note
+    subgraph cluster_notes {
+        label="Notes";
+        style=filled;
+        fillcolor=lightyellow;
+        node [style=filled, fillcolor=white];
+        note1 [label="State-Independent Actions:\n• Vertical/Horizontal navigation\n• Available in all states\n• Handled by handle_state_independent_input()"];
+        note2 [label="Display Updates:\n• draw_menu_with_filter()\n- Called when visible rows change\n• draw_footer()\n- Called for filter updates"];
+        note3 [label="Filtering:\n• Uses CircularList for row management\n• Filters are case-insensitive\n• Supports alphanumeric and '-' chars"];
+    }
+}
