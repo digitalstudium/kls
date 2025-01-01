@@ -123,15 +123,18 @@ class Menu:
         self.filter: str = ""
         self.state: MenuState = MenuState.NORMAL
         self.filtered_rows: CircularList = CircularList([x for x in self.rows if self.filter in x])
-        self.visible_rows: Callable[[], list[str]] = lambda: self.filtered_rows[:ROWS_HEIGHT]
         self.visible_row_index: int = 0
         self.selected_row: Callable[[], Optional[str]] = (
-            lambda: self.visible_rows()[self.visible_row_index] if self.visible_rows() else None
+            lambda: self.visible_rows[self.visible_row_index] if self.visible_rows else None
         )
         self.width: int = int(width)
         self.begin_x: int = int(begin_x)
         self.win: curses.window = curses.newwin(curses.LINES - FOOTER_HEIGHT, self.width, 0, self.begin_x)
         self.dependent_menus: list[Self] = []
+        
+    @property
+    def visible_rows(self) -> list[str]:
+        return self.filtered_rows[:ROWS_HEIGHT]
 
     async def refresh_rows(self):
         self.rows = await self.rows_function()
@@ -154,7 +157,7 @@ class Menu:
         await self.refresh_dependent_menus()
 
     def draw_rows(self) -> None:
-        for index, row in enumerate(self.visible_rows()):
+        for index, row in enumerate(self.visible_rows):
             draw_row(self.win, row, index + HEADER_HEIGHT, 2, selected=row == self.selected_row())
 
     def draw_menu_with_footer(self) -> None:
@@ -169,9 +172,9 @@ class Menu:
         )
 
     async def draw_menu_or_footer(self, footer_text: str) -> None:
-        previous_visible_rows = self.visible_rows()
+        previous_visible_rows = self.visible_rows
         self.refresh_filtered_rows()
-        if self.visible_rows() != previous_visible_rows:  # draw whole menu
+        if self.visible_rows != previous_visible_rows:  # draw whole menu
             self.visible_row_index = 0
             self.draw_menu_with_footer()
             if self == MENUS[0]:
@@ -187,7 +190,7 @@ class Menu:
     async def refresh_menu(self) -> None:
         await self.refresh_rows()
         self.refresh_filtered_rows()
-        if self.visible_row_index >= len(self.visible_rows()):
+        if self.visible_row_index >= len(self.visible_rows):
             self.visible_row_index = 0  # reset selected row only if number of lines changed
         self.draw_menu_with_footer()
 
@@ -318,14 +321,14 @@ def handle_mouse(menu: Menu) -> None:
     char_str = chr(char_int & 0xFF)
     if not char_str or ord(char_str) > 127 or " " in char_str:
         return
-    if 0 <= row_number < len(menu.visible_rows()):
+    if 0 <= row_number < len(menu.visible_rows):
         menu.visible_row_index = row_number
         menu.draw_rows()
         menu.refresh_dependent_menus()
 
 
 async def move_selection_vertically(key: str, menu: Menu) -> None:
-    if len(menu.visible_rows()) <= 1:
+    if len(menu.visible_rows) <= 1:
         return
     keys_numbers: dict[str, int] = {"KEY_DOWN": 1, "KEY_UP": -1}
     if menu.filtered_rows.size > ROWS_HEIGHT:
@@ -392,7 +395,7 @@ async def kubectl_async(command: str) -> list[str]:
 
 async def handle_state_independent_input(menu: Menu, key: str) -> None:
     if key in ["KEY_UP", "KEY_DOWN"]:  # V (Vertical navigation)
-        if len(menu.visible_rows()) > 1:
+        if len(menu.visible_rows) > 1:
             await cancel_resources_refreshing()
             await move_selection_vertically(key, menu)
             if menu == MENUS[0]:
