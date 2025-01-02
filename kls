@@ -4,7 +4,6 @@ import subprocess
 import curses
 import curses.ascii
 import asyncio
-from enum import Enum, auto
 
 SCREEN: curses.window = curses.initscr()
 
@@ -101,12 +100,6 @@ class CircularList:
         self.index = (self.index + steps) % self.size
 
 
-class MenuState(Enum):
-    NORMAL = auto()
-    FILTER_MODE = auto()
-    FILTER_MODE_WITH_FILTER = auto()
-
-
 class Menu:
     selected = None  # Class variable to track selected object
 
@@ -121,7 +114,7 @@ class Menu:
         self.rows: list[str] = []
         self.rows_function = rows_function
         self.filter: str = ""
-        self.state: MenuState = MenuState.NORMAL
+        self.state: str = "Normal"
         self.filtered_rows: CircularList = CircularList([x for x in self.rows if self.filter in x])
         self.visible_row_index: int = 0
         self.selected_row: Callable[[], Optional[str]] = (
@@ -131,28 +124,28 @@ class Menu:
         self.begin_x: int = int(begin_x)
         self.win: curses.window = curses.newwin(curses.LINES - FOOTER_HEIGHT, self.width, 0, self.begin_x)
         self.dependent_menus: list[Self] = []
-        
+
     @property
     def visible_rows(self) -> list[str]:
         return self.filtered_rows[:ROWS_HEIGHT]
 
-    async def refresh_rows(self):
+    async def set_rows(self):
         self.rows = await self.rows_function()
 
-    def refresh_filtered_rows(self):
+    def set_filtered_rows(self):
         self.filtered_rows = CircularList([x for x in self.rows if self.filter in x])
 
-    async def set_state(self, state: MenuState) -> None:
+    async def set_state(self, state: str) -> None:
         self.state = state
         # entry activities
         match self.state:
-            case MenuState.NORMAL:
+            case "Normal":
                 self.filter = ""
                 await self.draw_menu_or_footer("")
-            case MenuState.FILTER_MODE:
+            case "EmptyFilter":
                 self.filter = ""
                 await self.draw_menu_or_footer("/")
-            case MenuState.FILTER_MODE_WITH_FILTER:
+            case "FilledFilter":
                 await self.draw_menu_or_footer(f"/{self.filter}")  # if redrawing whole menu is not needed
         await self.refresh_dependent_menus()
 
@@ -166,14 +159,14 @@ class Menu:
         self.draw_rows()
         draw_row(
             self.win,
-            f"/{self.filter}" if self.state in [MenuState.FILTER_MODE, MenuState.FILTER_MODE_WITH_FILTER] else "",
+            f"/{self.filter}" if self.state in ["EmptyFilter", "FilledFilter"] else "",
             curses.LINES - FOOTER_HEIGHT - 2,
             2,
         )
 
     async def draw_menu_or_footer(self, footer_text: str) -> None:
         previous_visible_rows = self.visible_rows
-        self.refresh_filtered_rows()
+        self.set_filtered_rows()
         if self.visible_rows != previous_visible_rows:  # draw whole menu
             self.visible_row_index = 0
             self.draw_menu_with_footer()
@@ -188,8 +181,8 @@ class Menu:
             await menu.refresh_menu()
 
     async def refresh_menu(self) -> None:
-        await self.refresh_rows()
-        self.refresh_filtered_rows()
+        await self.set_rows()
+        self.set_filtered_rows()
         if self.visible_row_index >= len(self.visible_rows):
             self.visible_row_index = 0  # reset selected row only if number of lines changed
         self.draw_menu_with_footer()
@@ -453,8 +446,8 @@ async def initialize_interface() -> None:
     await setup_curses()
 
     for index, menu in enumerate(MENUS):
-        await menu.refresh_rows()
-        menu.refresh_filtered_rows()
+        await menu.set_rows()
+        menu.set_filtered_rows()
         menu.draw_menu_with_footer()
         menu.dependent_menus = MENUS[index + 1 :]  # all other menu to the right
     draw_row(curses.newwin(3, curses.COLS, curses.LINES - FOOTER_HEIGHT, 0), HELP_TEXT, 1, 2)
@@ -475,27 +468,27 @@ async def main_async() -> None:
 
         # handle state-dependent keys
         match menu.state:
-            case MenuState.NORMAL:
+            case "Normal":
                 if key == "q":  # Q (Quit)
                     break  # Exit
                 elif key == "/":  # S (Slash)
-                    await menu.set_state(MenuState.FILTER_MODE)  # Transition to EmptyFilter state
+                    await menu.set_state("EmptyFilter")  # Transition to EmptyFilter state
                     continue
-            case MenuState.FILTER_MODE:
+            case "EmptyFilter":
                 if key == "\x1b":  # E (Escape)
-                    await menu.set_state(MenuState.NORMAL)  # Transition to Normal state
+                    await menu.set_state("Normal")  # Transition to Normal state
                     continue
                 elif key.isalnum() or key == "-":  # A (Type text)
                     menu.filter += key.lower()
-                    await menu.set_state(MenuState.FILTER_MODE_WITH_FILTER)  # Transition to FilledFilter state
+                    await menu.set_state("FilledFilter")  # Transition to FilledFilter state
                     continue
-            case MenuState.FILTER_MODE_WITH_FILTER:  # FilledFilter state
+            case "FilledFilter":  # FilledFilter state
                 if key == "\x1b":  # E (Escape)
-                    await menu.set_state(MenuState.NORMAL)  # Transition to Normal state
+                    await menu.set_state("Normal")  # Transition to Normal state
                     continue
                 elif key in ["KEY_BACKSPACE", "\x08"]:  # B (Backspace)
                     if len(menu.filter) == 1:
-                        await menu.set_state(MenuState.FILTER_MODE)  # Transition to EmptyFilter state
+                        await menu.set_state("EmptyFilter")  # Transition to EmptyFilter state
                         continue
                     menu.filter = menu.filter[:-1]
                     await menu.draw_menu_or_footer(f"/{menu.filter}")

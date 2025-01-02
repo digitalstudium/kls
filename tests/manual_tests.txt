@@ -1,2 +1,11 @@
+Key Bindings:
 1. Test all key bindings on pods, services and secrets
-2. Test filters
+Filter:
+1. filter mode
+2. unmatched filter
+3. matched filter
+4. matched all filter
+5. vertical navigation with matched filter
+6. exit filter mode
+Navigation:
+1. Navigate contexts
