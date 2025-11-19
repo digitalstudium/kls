@@ -17,6 +17,7 @@ use ratatui::{
 use std::collections::HashSet;
 use std::io;
 use std::process::Command;
+use std::time::{Duration, Instant};
 use tokio::process::Command as AsyncCommand;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -204,10 +205,24 @@ impl Menu {
     }
 
     fn set_items(&mut self, new_items: Vec<String>) {
+        // Запоминаем текущий индекс
+        let previous_selection = self.state.selected();
+
         self.items = new_items;
-        self.is_loading = false; // Сбрасываем флаг загрузки при получении данных
+        self.is_loading = false;
+
         if !self.items.is_empty() {
-            self.state.select(Some(0));
+            // Пытаемся восстановить курсор
+            if let Some(idx) = previous_selection {
+                if idx < self.items.len() {
+                    self.state.select(Some(idx));
+                } else {
+                    // Если элементов стало меньше, ставим на последний
+                    self.state.select(Some(self.items.len() - 1));
+                }
+            } else {
+                self.state.select(Some(0));
+            }
         } else {
             self.state.select(None);
         }
@@ -361,11 +376,11 @@ impl App {
         }
     }
 
-    fn trigger_resource_fetch(&mut self) {
+    // Добавляем аргумент is_auto_refresh
+    fn trigger_resource_fetch(&mut self, is_auto_refresh: bool) {
         let ns_opt = self.menus[0].selected_item();
         let kind_opt = self.menus[1].selected_item();
 
-        // Если что-то еще грузится или не выбрано, очищаем список ресурсов
         if ns_opt.is_none() || kind_opt.is_none() {
             self.menus[2].set_items(vec![]);
             return;
@@ -373,8 +388,11 @@ impl App {
         let ns = ns_opt.unwrap();
         let kind = kind_opt.unwrap();
 
-        // Ставим статус загрузки для третьего меню
-        self.menus[2].set_loading();
+        // Если это НЕ автообновление (ручной клик), то показываем "loading..."
+        // Если автообновление - оставляем старые данные на экране до прихода новых
+        if !is_auto_refresh {
+            self.menus[2].set_loading();
+        }
 
         if let Some(task) = &self.current_fetch_task {
             task.abort();
@@ -454,24 +472,25 @@ async fn run_loop<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
 ) -> Result<()> {
+    // Таймер для автообновления
+    let mut last_tick = Instant::now();
+    let tick_rate = Duration::from_secs(2); // Обновляем каждые 2 секунды
+
     loop {
         terminal.draw(|f| ui(f, app))?;
 
-        // Проверяем события загрузки данных
-        if let Ok(event) = app.event_rx.try_recv() {
+        while let Ok(event) = app.event_rx.try_recv() {
             match event {
                 AppEvent::Namespaces(items) => {
                     app.menus[0].set_items(items);
-                    // Если данные API Resources уже есть, пробуем загрузить ресурсы
                     if !app.menus[1].is_loading {
-                        app.trigger_resource_fetch();
+                        app.trigger_resource_fetch(false); // false = показываем loading
                     }
                 }
                 AppEvent::ApiResources(items) => {
                     app.menus[1].set_items(items);
-                    // Если данные Namespaces уже есть, пробуем загрузить ресурсы
                     if !app.menus[0].is_loading {
-                        app.trigger_resource_fetch();
+                        app.trigger_resource_fetch(false); // false = показываем loading
                     }
                 }
                 AppEvent::Resources(items) => {
@@ -480,7 +499,21 @@ async fn run_loop<B: ratatui::backend::Backend>(
             }
         }
 
-        if event::poll(std::time::Duration::from_millis(50))? {
+        // --- ЛОГИКА АВТООБНОВЛЕНИЯ ---
+        if last_tick.elapsed() >= tick_rate {
+            // Если мы не в режиме ввода фильтра и не в процессе загрузки начальных данных
+            if !app.menus[2].is_loading {
+                app.trigger_resource_fetch(true); // true = тихое обновление (без loading...)
+            }
+            last_tick = Instant::now();
+        }
+        // -----------------------------
+
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_else(|| Duration::from_secs(0));
+
+        if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     handle_input(app, key, terminal)?;
@@ -639,11 +672,11 @@ fn handle_input<B: ratatui::backend::Backend>(
 
     // Обновление ресурсов только если мы в первых двух меню и выбор изменился
     if selection_changed && (menu_idx == 0 || menu_idx == 1) {
-        app.trigger_resource_fetch();
+        app.trigger_resource_fetch(false);
     }
 
     if force_refresh {
-        app.trigger_resource_fetch();
+        app.trigger_resource_fetch(false);
     }
 
     Ok(())
