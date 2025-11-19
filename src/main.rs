@@ -6,6 +6,7 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use directories::ProjectDirs;
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -15,7 +16,9 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use std::collections::HashSet;
+use std::fs;
 use std::io;
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 use tokio::process::Command as AsyncCommand;
@@ -40,6 +43,45 @@ const TOP_API_RESOURCES: &[&str] = &[
 ];
 
 const BATCAT_STYLE: &str = " --paging always --style numbers";
+
+// --- CACHE HELPERS ---
+
+fn get_cache_path(filename: &str) -> Option<PathBuf> {
+    if let Some(proj_dirs) = ProjectDirs::from("com", "k8s-tui", "k8s-tui") {
+        let cache_dir = proj_dirs.cache_dir();
+        // Создаем директорию, если её нет
+        if !cache_dir.exists() {
+            let _ = fs::create_dir_all(cache_dir);
+        }
+        return Some(cache_dir.join(filename));
+    }
+    None
+}
+
+fn save_cache(filename: &str, data: &[String]) {
+    if let Some(path) = get_cache_path(filename) {
+        // Сериализуем в JSON
+        if let Ok(json) = serde_json::to_string(data) {
+            // Пишем файл синхронно (в отдельном потоке, это быстро для мелких файлов)
+            let _ = fs::write(path, json);
+        }
+    }
+}
+
+fn load_cache(filename: &str) -> Option<Vec<String>> {
+    if let Some(path) = get_cache_path(filename) {
+        if path.exists() {
+            if let Ok(content) = fs::read_to_string(path) {
+                if let Ok(data) = serde_json::from_str::<Vec<String>>(&content) {
+                    if !data.is_empty() {
+                        return Some(data);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
 
 // --- KUBECTL HELPER FUNCTIONS ---
 
@@ -321,12 +363,27 @@ struct App {
 
 impl App {
     fn new() -> Result<App> {
-        // Создаем меню сразу в состоянии загрузки
-        let menus = vec![
-            Menu::new_loading("Namespaces"),
-            Menu::new_loading("API Resources"),
-            Menu::new("Resources", vec![]),
-        ];
+        // 1. Пытаемся загрузить кэш
+        let cached_ns = load_cache("namespaces.json");
+        let cached_api = load_cache("apis.json");
+
+        // 2. Инициализируем меню.
+        // Если кэш есть - используем Menu::new (сразу данные).
+        // Если кэша нет - используем Menu::new_loading.
+
+        let menu_ns = if let Some(items) = cached_ns {
+            Menu::new("Namespaces", items)
+        } else {
+            Menu::new_loading("Namespaces")
+        };
+
+        let menu_api = if let Some(items) = cached_api {
+            Menu::new("API Resources", items)
+        } else {
+            Menu::new_loading("API Resources")
+        };
+
+        let menus = vec![menu_ns, menu_api, Menu::new("Resources", vec![])];
 
         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -337,26 +394,40 @@ impl App {
             event_tx: tx,
             event_rx: rx,
             current_fetch_task: None,
-            fetch_id: 0, // <--- Инициализируем нулем
+            fetch_id: 0,
         };
 
+        // 3. Запускаем фоновое обновление (даже если кэш загрузился, нужно проверить свежесть)
         app.fetch_initial_data();
+
         Ok(app)
     }
 
     fn fetch_initial_data(&self) {
+        // --- NAMESPACES ---
         let tx_ns = self.event_tx.clone();
         tokio::spawn(async move {
-            if let Ok(data) = get_namespaces_async().await {
-                let _ = tx_ns.send(AppEvent::Namespaces(data));
+            let data = get_namespaces_async().await.unwrap_or_default();
+
+            // Если данные успешно получены и не пусты, сохраняем в кэш
+            if !data.is_empty() {
+                save_cache("namespaces.json", &data);
             }
+
+            let _ = tx_ns.send(AppEvent::Namespaces(data));
         });
 
+        // --- API RESOURCES ---
         let tx_api = self.event_tx.clone();
         tokio::spawn(async move {
-            if let Ok(data) = get_api_resources_async().await {
-                let _ = tx_api.send(AppEvent::ApiResources(data));
+            let data = get_api_resources_async().await.unwrap_or_default();
+
+            // Если данные успешно получены, сохраняем в кэш
+            if !data.is_empty() {
+                save_cache("apis.json", &data);
             }
+
+            let _ = tx_api.send(AppEvent::ApiResources(data));
         });
     }
 
@@ -452,7 +523,15 @@ async fn main() -> Result<()> {
     let app_result = App::new();
 
     let res = match app_result {
-        Ok(mut app) => run_loop(&mut terminal, &mut app).await,
+        Ok(mut app) => {
+            // Если мы загрузились из кэша, у нас уже выбраны NS и Kind,
+            // но список ресурсов (3-я колонка) пуст. Нужно пнуть его обновление вручную.
+            if !app.menus[0].is_loading && !app.menus[1].is_loading {
+                app.trigger_resource_fetch(false);
+            }
+
+            run_loop(&mut terminal, &mut app).await
+        }
         Err(e) => Err(e),
     };
 
