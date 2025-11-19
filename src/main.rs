@@ -306,7 +306,7 @@ impl Menu {
 enum AppEvent {
     Namespaces(Vec<String>),
     ApiResources(Vec<String>),
-    Resources(Vec<String>),
+    Resources(Vec<String>, usize),
 }
 
 struct App {
@@ -316,6 +316,7 @@ struct App {
     event_tx: mpsc::UnboundedSender<AppEvent>,
     event_rx: mpsc::UnboundedReceiver<AppEvent>,
     current_fetch_task: Option<JoinHandle<()>>,
+    fetch_id: usize, // <--- Счетчик версий запросов
 }
 
 impl App {
@@ -336,11 +337,10 @@ impl App {
             event_tx: tx,
             event_rx: rx,
             current_fetch_task: None,
+            fetch_id: 0, // <--- Инициализируем нулем
         };
 
-        // Запускаем фоновые задачи для инициализации
         app.fetch_initial_data();
-
         Ok(app)
     }
 
@@ -388,8 +388,10 @@ impl App {
         let ns = ns_opt.unwrap();
         let kind = kind_opt.unwrap();
 
-        // Если это НЕ автообновление (ручной клик), то показываем "loading..."
-        // Если автообновление - оставляем старые данные на экране до прихода новых
+        // Увеличиваем ID. Теперь все предыдущие летящие запросы считаются устаревшими.
+        self.fetch_id += 1;
+        let my_id = self.fetch_id;
+
         if !is_auto_refresh {
             self.menus[2].set_loading();
         }
@@ -410,10 +412,11 @@ impl App {
                 "--ignore-not-found".to_string(),
             ];
 
+            // Передаем my_id обратно вместе с результатом
             if let Ok(lines) = run_kubectl_async(args).await {
-                let _ = tx.send(AppEvent::Resources(lines));
+                let _ = tx.send(AppEvent::Resources(lines, my_id));
             } else {
-                let _ = tx.send(AppEvent::Resources(vec![]));
+                let _ = tx.send(AppEvent::Resources(vec![], my_id));
             }
         });
 
@@ -484,17 +487,21 @@ async fn run_loop<B: ratatui::backend::Backend>(
                 AppEvent::Namespaces(items) => {
                     app.menus[0].set_items(items);
                     if !app.menus[1].is_loading {
-                        app.trigger_resource_fetch(false); // false = показываем loading
+                        app.trigger_resource_fetch(false);
                     }
                 }
                 AppEvent::ApiResources(items) => {
                     app.menus[1].set_items(items);
                     if !app.menus[0].is_loading {
-                        app.trigger_resource_fetch(false); // false = показываем loading
+                        app.trigger_resource_fetch(false);
                     }
                 }
-                AppEvent::Resources(items) => {
-                    app.menus[2].set_items(items);
+                // Принимаем ID и проверяем его
+                AppEvent::Resources(items, id) => {
+                    if id == app.fetch_id {
+                        app.menus[2].set_items(items);
+                    }
+                    // Если id != app.fetch_id, просто ничего не делаем (игнорируем старые данные)
                 }
             }
         }
