@@ -1,6 +1,8 @@
-use anyhow::{Context, Result}; // Context помогает понять, где упала ошибка
+use anyhow::{Context, Result};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -15,6 +17,9 @@ use ratatui::{
 use std::collections::HashSet;
 use std::io;
 use std::process::Command;
+use tokio::process::Command as AsyncCommand;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 // --- CONFIGURATION ---
 const HEADER_HEIGHT: u16 = 3;
@@ -41,17 +46,33 @@ const TOP_API_RESOURCES: &[&str] = &[
     "envoyfilters",
 ];
 
+const BATCAT_STYLE: &str = " --paging always --style numbers";
+
 // --- KUBECTL HELPER FUNCTIONS ---
 
-fn run_kubectl(args: &[&str]) -> Result<Vec<String>> {
+fn run_kubectl_sync(args: &[&str]) -> Result<Vec<String>> {
     let output = Command::new("kubectl")
         .args(args)
         .output()
-        .context("Failed to execute kubectl. Is it installed and in PATH?")?;
+        .context("Failed to execute kubectl")?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow::anyhow!("Kubectl error: {}", stderr));
+        return Ok(vec![]);
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    Ok(stdout
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect())
+}
+
+async fn run_kubectl_async(args: Vec<String>) -> Result<Vec<String>> {
+    let output = AsyncCommand::new("kubectl").args(args).output().await?;
+
+    if !output.status.success() {
+        return Ok(vec![]);
     }
 
     let stdout = String::from_utf8(output.stdout)?;
@@ -63,8 +84,7 @@ fn run_kubectl(args: &[&str]) -> Result<Vec<String>> {
 }
 
 fn get_namespaces() -> Result<Vec<String>> {
-    // 1. Получаем все неймспейсы
-    let all_ns = run_kubectl(&[
+    let all_ns = run_kubectl_sync(&[
         "get",
         "ns",
         "--no-headers",
@@ -72,22 +92,16 @@ fn get_namespaces() -> Result<Vec<String>> {
         "custom-columns=NAME:.metadata.name",
     ])?;
 
-    // 2. Получаем текущий неймспейс
-    let current_ns_vec = run_kubectl(&[
+    let current_ns_vec = run_kubectl_sync(&[
         "config",
         "view",
         "--minify",
         "--output",
         "jsonpath={..namespace}",
-    ]);
+    ])?;
 
-    // Обрабатываем случай, если current_ns пустой (контекст не задан)
-    let current_ns = match current_ns_vec {
-        Ok(vec) if !vec.is_empty() => Some(vec[0].clone()),
-        _ => None,
-    };
+    let current_ns = current_ns_vec.first().cloned();
 
-    // 3. Мержим: ставим текущий наверх
     if let Some(curr) = current_ns {
         let mut result = vec![curr.clone()];
         result.extend(all_ns.into_iter().filter(|ns| ns != &curr));
@@ -98,34 +112,63 @@ fn get_namespaces() -> Result<Vec<String>> {
 }
 
 fn get_api_resources() -> Result<Vec<String>> {
-    // 1. Получаем список из кластера
-    let output = run_kubectl(&["api-resources", "--no-headers", "--verbs=get"])?;
-
-    // Парсим только первое слово (имя ресурса)
+    let output = run_kubectl_sync(&["api-resources", "--no-headers", "--verbs=get"])?;
     let cluster_resources: Vec<String> = output
         .iter()
         .filter_map(|line| line.split_whitespace().next().map(|s| s.to_string()))
         .collect();
 
-    // 2. Объединяем с TOP_API_RESOURCES, сохраняя порядок TOP, затем остальные
     let mut result = Vec::new();
     let mut seen = HashSet::new();
 
-    // Сначала добавляем приоритетные
     for &res in TOP_API_RESOURCES {
         result.push(res.to_string());
         seen.insert(res.to_string());
     }
 
-    // Затем добавляем те, что пришли из кластера, но отсутствуют в TOP
     for res in cluster_resources {
         if !seen.contains(&res) {
             result.push(res.clone());
             seen.insert(res);
         }
     }
-
     Ok(result)
+}
+
+// --- SYSTEM COMMAND EXECUTOR ---
+
+// Эта функция временно отключает TUI, запускает интерактивную команду shell, и возвращает TUI
+fn execute_shell_command<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>,
+    command_str: &str,
+) -> Result<()> {
+    // 1. Восстанавливаем терминал в обычный режим
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+
+    // 2. Запускаем команду
+    // Используем sh -c, чтобы работали пайпы (|) и перенаправления
+    let status = Command::new("sh").arg("-c").arg(command_str).status();
+
+    // Если команда упала, можно вывести ошибку, но мы пока просто игнорируем
+    if let Err(e) = status {
+        println!("Error executing command: {}", e);
+        println!("Press Enter to continue...");
+        let _ = io::stdin().read_line(&mut String::new());
+    }
+
+    // 3. Возвращаем терминал в режим TUI
+    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    enable_raw_mode()?;
+    terminal.clear()?; // Очистить экран от артефактов
+    terminal.draw(|f| {
+        // Пустой draw, чтобы сбросить буфер, реальная отрисовка будет в цикле
+        let size = f.area();
+        let block = Block::default().style(Style::default().bg(Color::Reset));
+        f.render_widget(block, size);
+    })?;
+
+    Ok(())
 }
 
 // --- DATA STRUCTURES ---
@@ -163,6 +206,20 @@ impl Menu {
                 .filter(|item| item.to_lowercase().contains(&lower_filter))
                 .cloned()
                 .collect()
+        }
+    }
+
+    fn selected_item(&self) -> Option<String> {
+        let items = self.filtered_items();
+        self.state.selected().and_then(|i| items.get(i).cloned())
+    }
+
+    fn set_items(&mut self, new_items: Vec<String>) {
+        self.items = new_items;
+        if !self.items.is_empty() {
+            self.state.select(Some(0));
+        } else {
+            self.state.select(None);
         }
     }
 
@@ -232,29 +289,35 @@ struct App {
     menus: Vec<Menu>,
     selected_menu_index: usize,
     should_quit: bool,
+    resource_tx: mpsc::UnboundedSender<Vec<String>>,
+    resource_rx: mpsc::UnboundedReceiver<Vec<String>>,
+    current_fetch_task: Option<JoinHandle<()>>,
 }
 
 impl App {
-    // Теперь new возвращает Result, так как мы делаем I/O операции
     fn new() -> Result<App> {
-        // Загружаем реальные данные
         let namespaces = get_namespaces().context("Error fetching namespaces")?;
         let api_resources = get_api_resources().context("Error fetching api-resources")?;
-
-        // Третье меню пока пустое (загрузку сделаем на следующем шаге)
-        let resources: Vec<String> = vec![];
 
         let menus = vec![
             Menu::new("Namespaces", namespaces),
             Menu::new("API Resources", api_resources),
-            Menu::new("Resources", resources),
+            Menu::new("Resources", vec![]),
         ];
 
-        Ok(App {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        let mut app = App {
             menus,
             selected_menu_index: 0,
             should_quit: false,
-        })
+            resource_tx: tx,
+            resource_rx: rx,
+            current_fetch_task: None,
+        };
+
+        app.trigger_resource_fetch();
+        Ok(app)
     }
 
     fn active_menu_mut(&mut self) -> &mut Menu {
@@ -272,23 +335,71 @@ impl App {
             self.selected_menu_index -= 1;
         }
     }
+
+    fn trigger_resource_fetch(&mut self) {
+        let ns = self.menus[0].selected_item();
+        let kind = self.menus[1].selected_item();
+
+        if ns.is_none() || kind.is_none() {
+            self.menus[2].set_items(vec![]);
+            return;
+        }
+        let ns = ns.unwrap();
+        let kind = kind.unwrap();
+
+        if let Some(task) = &self.current_fetch_task {
+            task.abort();
+        }
+
+        let tx = self.resource_tx.clone();
+
+        let handle = tokio::spawn(async move {
+            let args = vec![
+                "-n".to_string(),
+                ns,
+                "get".to_string(),
+                kind,
+                "--no-headers".to_string(),
+                "--ignore-not-found".to_string(),
+            ];
+
+            if let Ok(lines) = run_kubectl_async(args).await {
+                let _ = tx.send(lines);
+            } else {
+                let _ = tx.send(vec![]);
+            }
+        });
+
+        self.current_fetch_task = Some(handle);
+    }
+
+    // Helper для получения текущего полного выбора (ns, kind, resource_name)
+    fn get_current_selection(&self) -> Option<(String, String, String)> {
+        let ns = self.menus[0].selected_item()?;
+        let kind = self.menus[1].selected_item()?;
+        let row = self.menus[2].selected_item()?;
+
+        // Парсим имя ресурса (первое слово в строке)
+        let name = row.split_whitespace().next()?.to_string();
+
+        Some((ns, kind, name))
+    }
 }
 
 // --- MAIN ---
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Инициализация приложения может выдать ошибку (если нет kubectl)
-    // Если ошибка - корректно восстанавливаем терминал перед выходом
     let app_result = App::new();
 
     let res = match app_result {
-        Ok(mut app) => run_loop(&mut terminal, &mut app),
+        Ok(mut app) => run_loop(&mut terminal, &mut app).await,
         Err(e) => Err(e),
     };
 
@@ -307,14 +418,21 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_loop<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
+async fn run_loop<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut App,
+) -> Result<()> {
     loop {
         terminal.draw(|f| ui(f, app))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
+        if let Ok(new_items) = app.resource_rx.try_recv() {
+            app.menus[2].set_items(new_items);
+        }
+
+        if event::poll(std::time::Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    handle_input(app, key);
+                    handle_input(app, key, terminal)?;
                 }
             }
         }
@@ -325,47 +443,164 @@ fn run_loop<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut 
     }
 }
 
-// --- UPDATE / LOGIC ---
-
-fn handle_input(app: &mut App, key: event::KeyEvent) {
+fn handle_input<B: ratatui::backend::Backend>(
+    app: &mut App,
+    key: event::KeyEvent,
+    terminal: &mut Terminal<B>,
+) -> Result<()> {
+    let menu_idx = app.selected_menu_index;
     let menu = app.active_menu_mut();
 
-    if menu.filter_mode {
+    let mut selection_changed = false;
+    let mut force_refresh = false;
+
+    // Определяем, является ли клавиша навигационной (работает в обоих режимах)
+    // Примечание: j/k здесь нет, так как в режиме фильтра они должны печататься
+    let is_navigation = match key.code {
+        KeyCode::Down
+        | KeyCode::Up
+        | KeyCode::Home
+        | KeyCode::End
+        | KeyCode::Right
+        | KeyCode::Left
+        | KeyCode::Tab
+        | KeyCode::BackTab => true,
+        _ => false,
+    };
+
+    if is_navigation {
+        // ОБЩАЯ НАВИГАЦИЯ (работает и при включенном фильтре)
         match key.code {
-            KeyCode::Esc => menu.exit_filter_mode(),
-            KeyCode::Enter => menu.filter_mode = false,
-            KeyCode::Backspace => {
-                menu.filter.pop();
-                menu.update_selection_after_filter();
+            KeyCode::Down => {
+                menu.next();
+                selection_changed = true;
             }
-            KeyCode::Char(c) => {
-                menu.filter.push(c);
-                menu.update_selection_after_filter();
+            KeyCode::Up => {
+                menu.previous();
+                selection_changed = true;
             }
-            _ => {}
-        }
-    } else {
-        match key.code {
-            KeyCode::Char('q') => app.should_quit = true,
-            KeyCode::Char('/') => menu.enter_filter_mode(),
-            KeyCode::Esc => {
-                if !menu.filter.is_empty() {
-                    menu.exit_filter_mode();
-                } else {
-                    app.should_quit = true;
-                }
+            KeyCode::Home => {
+                menu.state.select(Some(0));
+                selection_changed = true;
             }
-            KeyCode::Down | KeyCode::Char('j') => menu.next(),
-            KeyCode::Up | KeyCode::Char('k') => menu.previous(),
-            KeyCode::Home => menu.state.select(Some(0)),
             KeyCode::Right | KeyCode::Tab => app.next_menu(),
             KeyCode::Left | KeyCode::BackTab => app.previous_menu(),
             _ => {}
         }
+    } else if menu.filter_mode {
+        // РЕЖИМ ФИЛЬТРА (ввод текста)
+        match key.code {
+            KeyCode::Esc => {
+                // Esc выходит из режима. Если фильтр был, очищаем его (как в Python)
+                // Если нужно поведение "оставить фильтр, но выйти из режима ввода" - уберите clear()
+                menu.exit_filter_mode();
+                selection_changed = true;
+            }
+            KeyCode::Enter => {
+                // Enter просто подтверждает ввод, выходя из режима редактирования
+                menu.filter_mode = false;
+            }
+            KeyCode::Backspace => {
+                menu.filter.pop();
+                menu.update_selection_after_filter();
+                selection_changed = true;
+            }
+            KeyCode::Char(c) => {
+                menu.filter.push(c);
+                menu.update_selection_after_filter();
+                selection_changed = true;
+            }
+            _ => {}
+        }
+    } else {
+        // ОБЫЧНЫЙ РЕЖИМ (команды, j/k, биндинги)
+        match key.code {
+            KeyCode::Char('q') => app.should_quit = true,
+            KeyCode::Char('/') => menu.enter_filter_mode(),
+
+            // Vim-style навигация (только если не вводим текст)
+            KeyCode::Char('j') => {
+                menu.next();
+                selection_changed = true;
+            }
+            KeyCode::Char('k') => {
+                menu.previous();
+                selection_changed = true;
+            }
+
+            KeyCode::Esc => {
+                if !menu.filter_mode && !menu.filter.is_empty() {
+                    menu.exit_filter_mode();
+                    selection_changed = true;
+                } else {
+                    app.should_quit = true;
+                }
+            }
+
+            // --- KEY BINDINGS (Ctrl+Key) ---
+            KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some((ns, kind, name)) = app.get_current_selection() {
+                    let command_template = match c {
+                        'y' => Some(
+                            "kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml",
+                        ),
+                        'd' => Some(
+                            "kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml",
+                        ),
+                        'e' => Some("kubectl -n {namespace} edit {api_resource} {resource}"),
+                        'l' => Some("kubectl -n {namespace} logs {resource} | hl"),
+                        'x' => Some("kubectl -n {namespace} exec -it {resource} -- sh"),
+                        'n' => Some(
+                            "kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot",
+                        ),
+                        'a' => Some("kubectl -n {namespace} logs {resource} -c istio-proxy | jaq -Rc 'fromjson? | .' --sort-keys | hl"),
+                        'p' => Some(
+                            "kubectl -n {namespace} exec -it {resource} -c istio-proxy -- bash",
+                        ),
+                        'r' => Some(
+                            "kubectl get secret {resource} -n {namespace} -o yaml | yq '.data |= with_entries(.value |= @base64d)' -y | batcat -l yaml",
+                        ),
+                        _ => None,
+                    };
+
+                    if let Some(tmpl) = command_template {
+                        let mut cmd = tmpl
+                            .replace("{namespace}", &ns)
+                            .replace("{api_resource}", &kind)
+                            .replace("{resource}", &name);
+
+                        if cmd.contains("batcat") {
+                            cmd.push_str(BATCAT_STYLE);
+                        }
+
+                        execute_shell_command(terminal, &cmd)?;
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                if let Some((ns, kind, name)) = app.get_current_selection() {
+                    let cmd = format!("kubectl -n {} delete {} {}", ns, kind, name);
+                    execute_shell_command(terminal, &cmd)?;
+                    force_refresh = true;
+                }
+            }
+            _ => {}
+        }
     }
+
+    // Обновление ресурсов
+    if selection_changed && (menu_idx == 0 || menu_idx == 1) {
+        app.trigger_resource_fetch();
+    }
+
+    if force_refresh {
+        app.trigger_resource_fetch();
+    }
+
+    Ok(())
 }
 
-// --- UI ---
+// --- UI (Без изменений) ---
 
 fn ui(f: &mut ratatui::Frame, app: &mut App) {
     let area = f.area();
