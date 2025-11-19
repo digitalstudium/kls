@@ -1,26 +1,27 @@
+use anyhow::Context;
 use anyhow::Result;
 use crossterm::{
-    event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
-    },
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use directories::ProjectDirs;
+
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::process::Command as AsyncCommand;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -45,6 +46,89 @@ const TOP_API_RESOURCES: &[&str] = &[
 const BATCAT_STYLE: &str = " --paging always --style numbers";
 
 // --- CACHE HELPERS ---
+//
+// Структура для сохранения на диск
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DiskResourceCache {
+    // Ключ: "namespace|kind"
+    data: HashMap<String, DiskCacheEntry>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DiskCacheEntry {
+    timestamp: u64, // Время сохранения (Unix timestamp)
+    lines: Vec<String>,
+}
+
+fn save_resource_cache_to_disk(cache: &HashMap<(String, String), (Instant, Vec<String>)>) {
+    let mut disk_map = HashMap::new();
+    // Получаем текущее системное время
+    let now_sys = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    for ((ns, kind), (inst, lines)) in cache {
+        // Вычисляем возраст записи в памяти
+        let age_secs = inst.elapsed().as_secs();
+
+        // Вычисляем, когда эта запись была бы сделана по системному времени
+        // (текущее время минус возраст записи)
+        let entry_ts = now_sys.saturating_sub(age_secs);
+
+        let key = format!("{}|{}", ns, kind);
+
+        disk_map.insert(
+            key,
+            DiskCacheEntry {
+                timestamp: entry_ts,
+                lines: lines.clone(),
+            },
+        );
+    }
+
+    let disk_cache = DiskResourceCache { data: disk_map };
+
+    if let Some(path) = get_cache_path("resources.json") {
+        if let Ok(json) = serde_json::to_string(&disk_cache) {
+            let _ = fs::write(path, json);
+        }
+    }
+}
+
+fn load_resource_cache_from_disk() -> HashMap<(String, String), (Instant, Vec<String>)> {
+    let mut mem_cache = HashMap::new();
+    let now_sys = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    if let Some(path) = get_cache_path("resources.json") {
+        if let Ok(content) = fs::read_to_string(path) {
+            if let Ok(disk_cache) = serde_json::from_str::<DiskResourceCache>(&content) {
+                for (key, entry) in disk_cache.data {
+                    // Проверяем валидность (30 секунд)
+                    // (текущее время >= времени записи) И (разница < 30 сек)
+                    if now_sys >= entry.timestamp && (now_sys - entry.timestamp) < 30 {
+                        // Разбираем ключ "ns|kind"
+                        if let Some((ns, kind)) = key.split_once('|') {
+                            // Восстанавливаем "фейковый" Instant для работы логики в памяти
+                            let age = Duration::from_secs(now_sys - entry.timestamp);
+                            let fake_instant =
+                                Instant::now().checked_sub(age).unwrap_or(Instant::now());
+
+                            mem_cache.insert(
+                                (ns.to_string(), kind.to_string()),
+                                (fake_instant, entry.lines),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    mem_cache
+}
 
 fn get_cache_path(filename: &str) -> Option<PathBuf> {
     if let Some(proj_dirs) = ProjectDirs::from("com", "k8s-tui", "k8s-tui") {
@@ -84,6 +168,24 @@ fn load_cache(filename: &str) -> Option<Vec<String>> {
 }
 
 // --- KUBECTL HELPER FUNCTIONS ---
+
+fn run_kubectl_sync(args: &[&str]) -> Result<Vec<String>> {
+    let output = Command::new("kubectl")
+        .args(args)
+        .output()
+        .context("Failed to execute kubectl")?;
+
+    if !output.status.success() {
+        return Ok(vec![]);
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    Ok(stdout
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect())
+}
 
 // Асинхронная версия для получения данных
 async fn run_kubectl_async(args: Vec<String>) -> Result<Vec<String>> {
@@ -162,6 +264,20 @@ async fn get_api_resources_async() -> Result<Vec<String>> {
     Ok(result)
 }
 
+async fn get_contexts_async() -> Result<Vec<String>> {
+    let args = vec![
+        "config".to_string(),
+        "get-contexts".to_string(),
+        "-o".to_string(),
+        "name".to_string(),
+    ];
+    run_kubectl_async(args).await
+}
+
+// Функция для переключения (синхронная, так как блокирует работу пока не переключимся)
+fn switch_context_sync(context_name: &str) -> Result<()> {
+    run_kubectl_sync(&["config", "use-context", context_name]).map(|_| ())
+}
 // --- SYSTEM COMMAND EXECUTOR ---
 
 fn execute_shell_command<B: ratatui::backend::Backend>(
@@ -349,6 +465,7 @@ enum AppEvent {
     Namespaces(Vec<String>),
     ApiResources(Vec<String>),
     Resources(Vec<String>, usize),
+    Contexts(Vec<String>),
 }
 
 struct App {
@@ -359,6 +476,10 @@ struct App {
     event_rx: mpsc::UnboundedReceiver<AppEvent>,
     current_fetch_task: Option<JoinHandle<()>>,
     fetch_id: usize, // <--- Счетчик версий запросов
+    resource_cache: HashMap<(String, String), (Instant, Vec<String>)>,
+    show_context_popup: bool,
+    context_items: Vec<String>,
+    context_state: ListState,
 }
 
 impl App {
@@ -366,6 +487,8 @@ impl App {
         // 1. Пытаемся загрузить кэш
         let cached_ns = load_cache("namespaces.json");
         let cached_api = load_cache("apis.json");
+
+        let api_cache_exists = cached_api.is_some();
 
         // 2. Инициализируем меню.
         // Если кэш есть - используем Menu::new (сразу данные).
@@ -387,6 +510,8 @@ impl App {
 
         let (tx, rx) = mpsc::unbounded_channel();
 
+        let resource_cache = load_resource_cache_from_disk();
+
         let app = App {
             menus,
             selected_menu_index: 0,
@@ -395,15 +520,31 @@ impl App {
             event_rx: rx,
             current_fetch_task: None,
             fetch_id: 0,
+            resource_cache,
+            show_context_popup: false,
+            context_items: vec![],
+            context_state: ListState::default(),
         };
 
         // 3. Запускаем фоновое обновление (даже если кэш загрузился, нужно проверить свежесть)
-        app.fetch_initial_data();
+        app.fetch_initial_data(api_cache_exists);
 
         Ok(app)
     }
 
-    fn fetch_initial_data(&self) {
+    fn open_context_popup(&mut self) {
+        self.show_context_popup = true;
+        self.context_items = vec!["loading...".to_string()];
+        self.context_state.select(Some(0));
+
+        let tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            let data = get_contexts_async().await.unwrap_or_default();
+            let _ = tx.send(AppEvent::Contexts(data));
+        });
+    }
+
+    fn fetch_initial_data(&self, skip_api_fetch: bool) {
         // --- NAMESPACES ---
         let tx_ns = self.event_tx.clone();
         tokio::spawn(async move {
@@ -418,34 +559,33 @@ impl App {
         });
 
         // --- API RESOURCES ---
-        let tx_api = self.event_tx.clone();
-        tokio::spawn(async move {
-            let data = get_api_resources_async().await.unwrap_or_default();
-
-            // Если данные успешно получены, сохраняем в кэш
-            if !data.is_empty() {
-                save_cache("apis.json", &data);
-            }
-
-            let _ = tx_api.send(AppEvent::ApiResources(data));
-        });
+        if !skip_api_fetch {
+            let tx_api = self.event_tx.clone();
+            tokio::spawn(async move {
+                let data = get_api_resources_async().await.unwrap_or_default();
+                if !data.is_empty() {
+                    save_cache("apis.json", &data);
+                }
+                let _ = tx_api.send(AppEvent::ApiResources(data));
+            });
+        }
     }
 
     fn refresh_metadata(&mut self) {
-        // 1. ОБЯЗАТЕЛЬНО увеличиваем ID.
-        // Это делает все предыдущие запросы "протухшими".
-        // Если сейчас летит запрос автообновления, его результат будет проигнорирован.
         self.fetch_id += 1;
 
-        // 2. Ставим визуальный статус
+        // Очищаем память
+        self.resource_cache.clear();
+
+        // Очищаем диск (перезаписываем пустым кэшем или удаляем файл)
+        save_resource_cache_to_disk(&self.resource_cache);
+        // Или: if let Some(p) = get_cache_path("resources.json") { let _ = fs::remove_file(p); }
+
         self.menus[0].set_loading();
         self.menus[1].set_loading();
-
-        // 3. Очищаем список ресурсов
         self.menus[2].set_items(vec![]);
 
-        // 4. Запускаем получение данных
-        self.fetch_initial_data();
+        self.fetch_initial_data(false);
     }
 
     fn active_menu_mut(&mut self) -> &mut Menu {
@@ -476,9 +616,26 @@ impl App {
         let ns = ns_opt.unwrap();
         let kind = kind_opt.unwrap();
 
-        // Увеличиваем ID. Теперь все предыдущие летящие запросы считаются устаревшими.
+        // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+        // Увеличиваем ID сразу же.
+        // Это делает невалидными ВСЕ запросы, которые были запущены до этой строчки.
         self.fetch_id += 1;
-        let my_id = self.fetch_id;
+
+        // --- ЛОГИКА КЭША ---
+        if !is_auto_refresh {
+            let key = (ns.clone(), kind.clone());
+            if let Some((timestamp, items)) = self.resource_cache.get(&key) {
+                if timestamp.elapsed().as_secs() < 60 {
+                    // Мы уже увеличили fetch_id выше, поэтому если сейчас прилетит
+                    // ответ от старого ns1, он будет иметь ID меньше текущего и отбросится.
+                    self.menus[2].set_items(items.clone());
+                    return;
+                }
+            }
+        }
+        // -------------------
+
+        let my_id = self.fetch_id; // Используем новый ID
 
         if !is_auto_refresh {
             self.menus[2].set_loading();
@@ -500,7 +657,6 @@ impl App {
                 "--ignore-not-found".to_string(),
             ];
 
-            // Передаем my_id обратно вместе с результатом
             if let Ok(lines) = run_kubectl_async(args).await {
                 let _ = tx.send(AppEvent::Resources(lines, my_id));
             } else {
@@ -572,14 +728,19 @@ async fn run_loop<B: ratatui::backend::Backend>(
     app: &mut App,
 ) -> Result<()> {
     // Таймер для автообновления
-    let mut last_tick = Instant::now();
-    let tick_rate = Duration::from_secs(2); // Обновляем каждые 2 секунды
+    let ui_tick = Duration::from_millis(100); // частота проверки ввода/событий
+    let refresh_interval = Duration::from_secs(2); // раз в 2 сек обновляем ресурсы
+    let mut last_refresh = Instant::now();
 
     loop {
-        terminal.draw(|f| ui(f, app))?;
-
         while let Ok(event) = app.event_rx.try_recv() {
             match event {
+                AppEvent::Contexts(items) => {
+                    app.context_items = items;
+                    if !app.context_items.is_empty() {
+                        app.context_state.select(Some(0));
+                    }
+                }
                 AppEvent::Namespaces(items) => {
                     app.menus[0].set_items(items);
                     if !app.menus[1].is_loading {
@@ -593,34 +754,43 @@ async fn run_loop<B: ratatui::backend::Backend>(
                     }
                 }
                 // Принимаем ID и проверяем его
+                // Внутри run_loop / match event
                 AppEvent::Resources(items, id) => {
                     if id == app.fetch_id {
+                        if let Some(ns) = app.menus[0].selected_item() {
+                            if let Some(kind) = app.menus[1].selected_item() {
+                                // Обновляем RAM (быстро)
+                                app.resource_cache.insert(
+                                    (ns.clone(), kind.clone()),
+                                    (Instant::now(), items.clone()),
+                                );
+
+                                // --- ИСПРАВЛЕНИЕ: Сохраняем на диск асинхронно ---
+                                let cache_clone = app.resource_cache.clone(); // Клонирование может быть дорогим, но дешевле IO
+                                tokio::task::spawn_blocking(move || {
+                                    save_resource_cache_to_disk(&cache_clone);
+                                });
+                                // ------------------------------------------------
+                            }
+                        }
                         app.menus[2].set_items(items);
                     }
-                    // Если id != app.fetch_id, просто ничего не делаем (игнорируем старые данные)
                 }
             }
         }
 
-        // --- ЛОГИКА АВТООБНОВЛЕНИЯ ---
-        if last_tick.elapsed() >= tick_rate {
-            // Если мы не в режиме ввода фильтра и не в процессе загрузки начальных данных
-            if !app.menus[2].is_loading {
-                app.trigger_resource_fetch(true); // true = тихое обновление (без loading...)
-            }
-            last_tick = Instant::now();
+        terminal.draw(|f| ui(f, app))?;
+
+        // 3. Автообновление ресурсов раз в refresh_interval
+        if last_refresh.elapsed() >= refresh_interval && !app.menus[2].is_loading {
+            app.trigger_resource_fetch(true); // тихое обновление
+            last_refresh = Instant::now();
         }
-        // -----------------------------
 
-        let timeout = tick_rate
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
-
-        if event::poll(timeout)? {
+        // 4. Ждём ввод только ui_tick (короткий таймаут)
+        if event::poll(ui_tick)? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    handle_input(app, key, terminal)?;
-                }
+                handle_input(app, key, terminal)?;
             }
         }
 
@@ -635,6 +805,57 @@ fn handle_input<B: ratatui::backend::Backend>(
     key: event::KeyEvent,
     terminal: &mut Terminal<B>,
 ) -> Result<()> {
+    if app.show_context_popup {
+        match key.code {
+            KeyCode::Esc => {
+                app.show_context_popup = false;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let i = match app.context_state.selected() {
+                    Some(i) => {
+                        if i >= app.context_items.len() - 1 {
+                            0
+                        } else {
+                            i + 1
+                        }
+                    }
+                    None => 0,
+                };
+                app.context_state.select(Some(i));
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let i = match app.context_state.selected() {
+                    Some(i) => {
+                        if i == 0 {
+                            app.context_items.len() - 1
+                        } else {
+                            i - 1
+                        }
+                    }
+                    None => 0,
+                };
+                app.context_state.select(Some(i));
+            }
+            KeyCode::Enter => {
+                if let Some(idx) = app.context_state.selected() {
+                    if let Some(ctx_name) = app.context_items.get(idx) {
+                        if ctx_name != "loading..." {
+                            // 1. Переключаем контекст
+                            let _ = switch_context_sync(ctx_name);
+
+                            // 2. Закрываем попап
+                            app.show_context_popup = false;
+
+                            // 3. Полный сброс и перезагрузка
+                            app.refresh_metadata();
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        return Ok(()); // <--- ВАЖНО: Выходим, чтобы не сработала остальная логика
+    }
     let menu_idx = app.selected_menu_index;
     let menu = app.active_menu_mut();
 
@@ -722,6 +943,10 @@ fn handle_input<B: ratatui::backend::Backend>(
 
             // --- KEY BINDINGS (Ctrl+Key) ---
             KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if c == 's' {
+                    app.open_context_popup();
+                    return Ok(());
+                }
                 if c == 'r' {
                     app.refresh_metadata();
                     return Ok(()); // Выходим, чтобы не сработала логика ниже
@@ -746,7 +971,7 @@ fn handle_input<B: ratatui::backend::Backend>(
                         'p' => Some(
                             "kubectl -n {namespace} exec -it {resource} -c istio-proxy -- bash",
                         ),
-                        's' => Some(
+                        'u' => Some(
                             "kubectl get secret {resource} -n {namespace} -o yaml | yq '.data |= with_entries(.value |= @base64d)' -y | batcat -l yaml",
                         ),
                         _ => None,
@@ -787,6 +1012,26 @@ fn handle_input<B: ratatui::backend::Backend>(
     }
 
     Ok(())
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
 
 fn ui(f: &mut ratatui::Frame, app: &mut App) {
@@ -873,6 +1118,35 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
     let footer = Paragraph::new(footer_text)
         .style(Style::default().fg(Color::Yellow))
         .block(Block::default().borders(Borders::TOP));
+
+    if app.show_context_popup {
+        let block = Block::default()
+            .title("Select Context")
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::DarkGray)); // Фон попапа
+
+        let area = centered_rect(60, 50, f.area());
+
+        // Очищаем область под попапом, чтобы текст снизу не просвечивал
+        f.render_widget(Clear, area);
+
+        let items: Vec<ListItem> = app
+            .context_items
+            .iter()
+            .map(|i| ListItem::new(Line::from(i.as_str())))
+            .collect();
+
+        let list = List::new(items)
+            .block(block)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(">> ");
+
+        f.render_stateful_widget(list, area, &mut app.context_state);
+    }
 
     f.render_widget(footer, footer_area);
 }
