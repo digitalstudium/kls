@@ -431,6 +431,23 @@ impl App {
         });
     }
 
+    fn refresh_metadata(&mut self) {
+        // 1. ОБЯЗАТЕЛЬНО увеличиваем ID.
+        // Это делает все предыдущие запросы "протухшими".
+        // Если сейчас летит запрос автообновления, его результат будет проигнорирован.
+        self.fetch_id += 1;
+
+        // 2. Ставим визуальный статус
+        self.menus[0].set_loading();
+        self.menus[1].set_loading();
+
+        // 3. Очищаем список ресурсов
+        self.menus[2].set_items(vec![]);
+
+        // 4. Запускаем получение данных
+        self.fetch_initial_data();
+    }
+
     fn active_menu_mut(&mut self) -> &mut Menu {
         &mut self.menus[self.selected_menu_index]
     }
@@ -705,6 +722,10 @@ fn handle_input<B: ratatui::backend::Backend>(
 
             // --- KEY BINDINGS (Ctrl+Key) ---
             KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if c == 'r' {
+                    app.refresh_metadata();
+                    return Ok(()); // Выходим, чтобы не сработала логика ниже
+                }
                 if let Some((ns, kind, name)) = app.get_current_selection() {
                     let command_template = match c {
                         'y' => Some(
@@ -725,7 +746,7 @@ fn handle_input<B: ratatui::backend::Backend>(
                         'p' => Some(
                             "kubectl -n {namespace} exec -it {resource} -c istio-proxy -- bash",
                         ),
-                        'r' => Some(
+                        's' => Some(
                             "kubectl get secret {resource} -n {namespace} -o yaml | yq '.data |= with_entries(.value |= @base64d)' -y | batcat -l yaml",
                         ),
                         _ => None,
