@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use crossterm::{
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
@@ -36,37 +36,13 @@ const TOP_API_RESOURCES: &[&str] = &[
     "statefulsets",
     "daemonsets",
     "storageclasses",
-    "serviceentries",
-    "destinationrules",
-    "authorizationpolicies",
-    "virtualservices",
-    "gateways",
-    "telemetry",
-    "envoyfilters",
 ];
 
 const BATCAT_STYLE: &str = " --paging always --style numbers";
 
 // --- KUBECTL HELPER FUNCTIONS ---
 
-fn run_kubectl_sync(args: &[&str]) -> Result<Vec<String>> {
-    let output = Command::new("kubectl")
-        .args(args)
-        .output()
-        .context("Failed to execute kubectl")?;
-
-    if !output.status.success() {
-        return Ok(vec![]);
-    }
-
-    let stdout = String::from_utf8(output.stdout)?;
-    Ok(stdout
-        .lines()
-        .map(|line| line.trim().to_string())
-        .filter(|line| !line.is_empty())
-        .collect())
-}
-
+// Асинхронная версия для получения данных
 async fn run_kubectl_async(args: Vec<String>) -> Result<Vec<String>> {
     let output = AsyncCommand::new("kubectl").args(args).output().await?;
 
@@ -82,23 +58,26 @@ async fn run_kubectl_async(args: Vec<String>) -> Result<Vec<String>> {
         .collect())
 }
 
-fn get_namespaces() -> Result<Vec<String>> {
-    let all_ns = run_kubectl_sync(&[
-        "get",
-        "ns",
-        "--no-headers",
-        "-o",
-        "custom-columns=NAME:.metadata.name",
-    ])?;
+// Переписали на async, чтобы не блокировать старт
+async fn get_namespaces_async() -> Result<Vec<String>> {
+    let all_ns_args = vec![
+        "get".to_string(),
+        "ns".to_string(),
+        "--no-headers".to_string(),
+        "-o".to_string(),
+        "custom-columns=NAME:.metadata.name".to_string(),
+    ];
 
-    let current_ns_vec = run_kubectl_sync(&[
-        "config",
-        "view",
-        "--minify",
-        "--output",
-        "jsonpath={..namespace}",
-    ])?;
+    let current_ns_args = vec![
+        "config".to_string(),
+        "view".to_string(),
+        "--minify".to_string(),
+        "--output".to_string(),
+        "jsonpath={..namespace}".to_string(),
+    ];
 
+    let all_ns = run_kubectl_async(all_ns_args).await.unwrap_or_default();
+    let current_ns_vec = run_kubectl_async(current_ns_args).await.unwrap_or_default();
     let current_ns = current_ns_vec.first().cloned();
 
     if let Some(curr) = current_ns {
@@ -110,8 +89,14 @@ fn get_namespaces() -> Result<Vec<String>> {
     }
 }
 
-fn get_api_resources() -> Result<Vec<String>> {
-    let output = run_kubectl_sync(&["api-resources", "--no-headers", "--verbs=get"])?;
+async fn get_api_resources_async() -> Result<Vec<String>> {
+    let args = vec![
+        "api-resources".to_string(),
+        "--no-headers".to_string(),
+        "--verbs=get".to_string(),
+    ];
+    let output = run_kubectl_async(args).await.unwrap_or_default();
+
     let cluster_resources: Vec<String> = output
         .iter()
         .filter_map(|line| line.split_whitespace().next().map(|s| s.to_string()))
@@ -136,32 +121,25 @@ fn get_api_resources() -> Result<Vec<String>> {
 
 // --- SYSTEM COMMAND EXECUTOR ---
 
-// Эта функция временно отключает TUI, запускает интерактивную команду shell, и возвращает TUI
 fn execute_shell_command<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     command_str: &str,
 ) -> Result<()> {
-    // 1. Восстанавливаем терминал в обычный режим
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
 
-    // 2. Запускаем команду
-    // Используем sh -c, чтобы работали пайпы (|) и перенаправления
     let status = Command::new("sh").arg("-c").arg(command_str).status();
 
-    // Если команда упала, можно вывести ошибку, но мы пока просто игнорируем
     if let Err(e) = status {
         println!("Error executing command: {}", e);
         println!("Press Enter to continue...");
         let _ = io::stdin().read_line(&mut String::new());
     }
 
-    // 3. Возвращаем терминал в режим TUI
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     enable_raw_mode()?;
-    terminal.clear()?; // Очистить экран от артефактов
+    terminal.clear()?;
     terminal.draw(|f| {
-        // Пустой draw, чтобы сбросить буфер, реальная отрисовка будет в цикле
         let size = f.area();
         let block = Block::default().style(Style::default().bg(Color::Reset));
         f.render_widget(block, size);
@@ -178,6 +156,7 @@ struct Menu {
     state: ListState,
     filter: String,
     filter_mode: bool,
+    is_loading: bool, // Флаг загрузки
 }
 
 impl Menu {
@@ -192,7 +171,15 @@ impl Menu {
             state,
             filter: String::new(),
             filter_mode: false,
+            is_loading: false,
         }
+    }
+
+    // Создаем меню сразу с состоянием загрузки
+    fn new_loading(title: &str) -> Self {
+        let mut m = Menu::new(title, vec!["loading...".to_string()]);
+        m.is_loading = true;
+        m
     }
 
     fn filtered_items(&self) -> Vec<String> {
@@ -209,12 +196,16 @@ impl Menu {
     }
 
     fn selected_item(&self) -> Option<String> {
+        if self.is_loading {
+            return None;
+        } // Нельзя выбрать "loading..."
         let items = self.filtered_items();
         self.state.selected().and_then(|i| items.get(i).cloned())
     }
 
     fn set_items(&mut self, new_items: Vec<String>) {
         self.items = new_items;
+        self.is_loading = false; // Сбрасываем флаг загрузки при получении данных
         if !self.items.is_empty() {
             self.state.select(Some(0));
         } else {
@@ -222,7 +213,16 @@ impl Menu {
         }
     }
 
+    fn set_loading(&mut self) {
+        self.is_loading = true;
+        self.items = vec!["loading...".to_string()];
+        self.state.select(Some(0));
+    }
+
     fn next(&mut self) {
+        if self.is_loading {
+            return;
+        }
         let items = self.filtered_items();
         if items.is_empty() {
             return;
@@ -241,6 +241,9 @@ impl Menu {
     }
 
     fn previous(&mut self) {
+        if self.is_loading {
+            return;
+        }
         let items = self.filtered_items();
         if items.is_empty() {
             return;
@@ -284,39 +287,62 @@ impl Menu {
     }
 }
 
+// Enum для событий обновления данных
+enum AppEvent {
+    Namespaces(Vec<String>),
+    ApiResources(Vec<String>),
+    Resources(Vec<String>),
+}
+
 struct App {
     menus: Vec<Menu>,
     selected_menu_index: usize,
     should_quit: bool,
-    resource_tx: mpsc::UnboundedSender<Vec<String>>,
-    resource_rx: mpsc::UnboundedReceiver<Vec<String>>,
+    event_tx: mpsc::UnboundedSender<AppEvent>,
+    event_rx: mpsc::UnboundedReceiver<AppEvent>,
     current_fetch_task: Option<JoinHandle<()>>,
 }
 
 impl App {
     fn new() -> Result<App> {
-        let namespaces = get_namespaces().context("Error fetching namespaces")?;
-        let api_resources = get_api_resources().context("Error fetching api-resources")?;
-
+        // Создаем меню сразу в состоянии загрузки
         let menus = vec![
-            Menu::new("Namespaces", namespaces),
-            Menu::new("API Resources", api_resources),
+            Menu::new_loading("Namespaces"),
+            Menu::new_loading("API Resources"),
             Menu::new("Resources", vec![]),
         ];
 
         let (tx, rx) = mpsc::unbounded_channel();
 
-        let mut app = App {
+        let app = App {
             menus,
             selected_menu_index: 0,
             should_quit: false,
-            resource_tx: tx,
-            resource_rx: rx,
+            event_tx: tx,
+            event_rx: rx,
             current_fetch_task: None,
         };
 
-        app.trigger_resource_fetch();
+        // Запускаем фоновые задачи для инициализации
+        app.fetch_initial_data();
+
         Ok(app)
+    }
+
+    fn fetch_initial_data(&self) {
+        let tx_ns = self.event_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(data) = get_namespaces_async().await {
+                let _ = tx_ns.send(AppEvent::Namespaces(data));
+            }
+        });
+
+        let tx_api = self.event_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(data) = get_api_resources_async().await {
+                let _ = tx_api.send(AppEvent::ApiResources(data));
+            }
+        });
     }
 
     fn active_menu_mut(&mut self) -> &mut Menu {
@@ -336,21 +362,25 @@ impl App {
     }
 
     fn trigger_resource_fetch(&mut self) {
-        let ns = self.menus[0].selected_item();
-        let kind = self.menus[1].selected_item();
+        let ns_opt = self.menus[0].selected_item();
+        let kind_opt = self.menus[1].selected_item();
 
-        if ns.is_none() || kind.is_none() {
+        // Если что-то еще грузится или не выбрано, очищаем список ресурсов
+        if ns_opt.is_none() || kind_opt.is_none() {
             self.menus[2].set_items(vec![]);
             return;
         }
-        let ns = ns.unwrap();
-        let kind = kind.unwrap();
+        let ns = ns_opt.unwrap();
+        let kind = kind_opt.unwrap();
+
+        // Ставим статус загрузки для третьего меню
+        self.menus[2].set_loading();
 
         if let Some(task) = &self.current_fetch_task {
             task.abort();
         }
 
-        let tx = self.resource_tx.clone();
+        let tx = self.event_tx.clone();
 
         let handle = tokio::spawn(async move {
             let args = vec![
@@ -363,24 +393,26 @@ impl App {
             ];
 
             if let Ok(lines) = run_kubectl_async(args).await {
-                let _ = tx.send(lines);
+                let _ = tx.send(AppEvent::Resources(lines));
             } else {
-                let _ = tx.send(vec![]);
+                let _ = tx.send(AppEvent::Resources(vec![]));
             }
         });
 
         self.current_fetch_task = Some(handle);
     }
 
-    // Helper для получения текущего полного выбора (ns, kind, resource_name)
     fn get_current_selection(&self) -> Option<(String, String, String)> {
         let ns = self.menus[0].selected_item()?;
         let kind = self.menus[1].selected_item()?;
         let row = self.menus[2].selected_item()?;
 
-        // Парсим имя ресурса (первое слово в строке)
-        let name = row.split_whitespace().next()?.to_string();
+        // Игнорируем если выбрано "loading..." (хотя selected_item должен это обработать)
+        if row == "loading..." {
+            return None;
+        }
 
+        let name = row.split_whitespace().next()?.to_string();
         Some((ns, kind, name))
     }
 }
@@ -395,6 +427,7 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // App::new теперь возвращает управление мгновенно
     let app_result = App::new();
 
     let res = match app_result {
@@ -424,8 +457,27 @@ async fn run_loop<B: ratatui::backend::Backend>(
     loop {
         terminal.draw(|f| ui(f, app))?;
 
-        if let Ok(new_items) = app.resource_rx.try_recv() {
-            app.menus[2].set_items(new_items);
+        // Проверяем события загрузки данных
+        if let Ok(event) = app.event_rx.try_recv() {
+            match event {
+                AppEvent::Namespaces(items) => {
+                    app.menus[0].set_items(items);
+                    // Если данные API Resources уже есть, пробуем загрузить ресурсы
+                    if !app.menus[1].is_loading {
+                        app.trigger_resource_fetch();
+                    }
+                }
+                AppEvent::ApiResources(items) => {
+                    app.menus[1].set_items(items);
+                    // Если данные Namespaces уже есть, пробуем загрузить ресурсы
+                    if !app.menus[0].is_loading {
+                        app.trigger_resource_fetch();
+                    }
+                }
+                AppEvent::Resources(items) => {
+                    app.menus[2].set_items(items);
+                }
+            }
         }
 
         if event::poll(std::time::Duration::from_millis(50))? {
@@ -453,8 +505,6 @@ fn handle_input<B: ratatui::backend::Backend>(
     let mut selection_changed = false;
     let mut force_refresh = false;
 
-    // Определяем, является ли клавиша навигационной (работает в обоих режимах)
-    // Примечание: j/k здесь нет, так как в режиме фильтра они должны печататься
     let is_navigation = match key.code {
         KeyCode::Down
         | KeyCode::Up
@@ -468,7 +518,6 @@ fn handle_input<B: ratatui::backend::Backend>(
     };
 
     if is_navigation {
-        // ОБЩАЯ НАВИГАЦИЯ (работает и при включенном фильтре)
         match key.code {
             KeyCode::Down => {
                 menu.next();
@@ -479,24 +528,22 @@ fn handle_input<B: ratatui::backend::Backend>(
                 selection_changed = true;
             }
             KeyCode::Home => {
-                menu.state.select(Some(0));
-                selection_changed = true;
+                if !menu.is_loading {
+                    menu.state.select(Some(0));
+                    selection_changed = true;
+                }
             }
             KeyCode::Right | KeyCode::Tab => app.next_menu(),
             KeyCode::Left | KeyCode::BackTab => app.previous_menu(),
             _ => {}
         }
     } else if menu.filter_mode {
-        // РЕЖИМ ФИЛЬТРА (ввод текста)
         match key.code {
             KeyCode::Esc => {
-                // Esc выходит из режима. Если фильтр был, очищаем его (как в Python)
-                // Если нужно поведение "оставить фильтр, но выйти из режима ввода" - уберите clear()
                 menu.exit_filter_mode();
                 selection_changed = true;
             }
             KeyCode::Enter => {
-                // Enter просто подтверждает ввод, выходя из режима редактирования
                 menu.filter_mode = false;
             }
             KeyCode::Backspace => {
@@ -512,12 +559,13 @@ fn handle_input<B: ratatui::backend::Backend>(
             _ => {}
         }
     } else {
-        // ОБЫЧНЫЙ РЕЖИМ (команды, j/k, биндинги)
         match key.code {
             KeyCode::Char('q') => app.should_quit = true,
-            KeyCode::Char('/') => menu.enter_filter_mode(),
-
-            // Vim-style навигация (только если не вводим текст)
+            KeyCode::Char('/') => {
+                if !menu.is_loading {
+                    menu.enter_filter_mode()
+                }
+            }
             KeyCode::Char('j') => {
                 menu.next();
                 selection_changed = true;
@@ -552,7 +600,9 @@ fn handle_input<B: ratatui::backend::Backend>(
                         'n' => Some(
                             "kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot",
                         ),
-                        'a' => Some("kubectl -n {namespace} logs {resource} -c istio-proxy | jaq -Rc 'fromjson? | .' --sort-keys | hl"),
+                        'a' => Some(
+                            "kubectl -n {namespace} logs {resource} -c istio-proxy | jaq -Rc 'fromjson? | .' --sort-keys | hl",
+                        ),
                         'p' => Some(
                             "kubectl -n {namespace} exec -it {resource} -c istio-proxy -- bash",
                         ),
@@ -587,7 +637,7 @@ fn handle_input<B: ratatui::backend::Backend>(
         }
     }
 
-    // Обновление ресурсов
+    // Обновление ресурсов только если мы в первых двух меню и выбор изменился
     if selection_changed && (menu_idx == 0 || menu_idx == 1) {
         app.trigger_resource_fetch();
     }
@@ -598,8 +648,6 @@ fn handle_input<B: ratatui::backend::Backend>(
 
     Ok(())
 }
-
-// --- UI (Без изменений) ---
 
 fn ui(f: &mut ratatui::Frame, app: &mut App) {
     let area = f.area();
@@ -626,7 +674,19 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
 
         let items: Vec<ListItem> = filtered_items
             .iter()
-            .map(|s| ListItem::new(Line::from(s.as_str())))
+            .map(|s| {
+                // Подсветка для loading...
+                if menu.is_loading {
+                    ListItem::new(Line::from(Span::styled(
+                        s,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::ITALIC),
+                    )))
+                } else {
+                    ListItem::new(Line::from(s.as_str()))
+                }
+            })
             .collect();
 
         let is_active_menu = i == app.selected_menu_index;
@@ -656,10 +716,15 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
             ))
             .border_style(border_style);
 
-        let list = List::new(items)
-            .block(block)
-            .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD))
-            .highlight_symbol("> ");
+        // Если загрузка, не показываем хайлайт курсора
+        let list = if menu.is_loading {
+            List::new(items).block(block)
+        } else {
+            List::new(items)
+                .block(block)
+                .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD))
+                .highlight_symbol("> ")
+        };
 
         f.render_stateful_widget(list, menu_chunks[i], &mut menu.state);
     }
