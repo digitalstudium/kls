@@ -971,9 +971,6 @@ fn handle_input<B: ratatui::backend::Backend>(
                         'p' => Some(
                             "kubectl -n {namespace} exec -it {resource} -c istio-proxy -- bash",
                         ),
-                        'u' => Some(
-                            "kubectl get secret {resource} -n {namespace} -o yaml | yq '.data |= with_entries(.value |= @base64d)' -y | batcat -l yaml",
-                        ),
                         _ => None,
                     };
 

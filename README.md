@@ -16,7 +16,6 @@
 - `Ctrl+n` - **N**etwork debug of pod (with nicolaka/netshoot container attached)
 - `Ctrl+a` - **A**ccess logs of istio sidecar
 - `Ctrl+p` - exec into istio-**P**roxy sidecar
-- `Ctrl+u` - **U**nmask base64 secret values
 - `delete` - delete resource
 
 ### Other:
@@ -33,10 +32,10 @@
 
 ### Dependencies
 
-`batact` and `yq`:
+`batcat`:
 
 ```
-sudo apt install bat yq -y
+sudo apt install bat -y
 ```
 
 For `jaq` and `hl` installation refer to respective repositories:
