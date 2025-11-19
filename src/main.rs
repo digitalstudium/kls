@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -60,111 +61,180 @@ struct DiskCacheEntry {
     lines: Vec<String>,
 }
 
-fn save_resource_cache_to_disk(cache: &HashMap<(String, String), (Instant, Vec<String>)>) {
-    let mut disk_map = HashMap::new();
-    // Получаем текущее системное время
-    let now_sys = SystemTime::now()
+const RESOURCES_CACHE_FILENAME: &str = "resources.json";
+const RESOURCES_CACHE_TTL_SECONDS: u64 = 30;
+const RESOURCES_CACHE_KEY_SEPARATOR: &str = "|";
+
+fn get_current_timestamp() -> u64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
+        .as_secs()
+}
 
-    for ((ns, kind), (inst, lines)) in cache {
-        // Вычисляем возраст записи в памяти
-        let age_secs = inst.elapsed().as_secs();
+fn create_cache_key(namespace: &str, kind: &str) -> String {
+    format!("{}{}{}", namespace, RESOURCES_CACHE_KEY_SEPARATOR, kind)
+}
 
-        // Вычисляем, когда эта запись была бы сделана по системному времени
-        // (текущее время минус возраст записи)
-        let entry_ts = now_sys.saturating_sub(age_secs);
+fn parse_cache_key(key: &str) -> Option<(String, String)> {
+    key.split_once(RESOURCES_CACHE_KEY_SEPARATOR)
+        .map(|(ns, kind)| (ns.to_string(), kind.to_string()))
+}
 
-        let key = format!("{}|{}", ns, kind);
+fn instant_to_timestamp(instant: &Instant, current_timestamp: u64) -> u64 {
+    let age_secs = instant.elapsed().as_secs();
+    current_timestamp.saturating_sub(age_secs)
+}
 
-        disk_map.insert(
-            key,
-            DiskCacheEntry {
-                timestamp: entry_ts,
-                lines: lines.clone(),
-            },
-        );
+fn timestamp_to_instant(entry_timestamp: u64, current_timestamp: u64) -> Instant {
+    let age = Duration::from_secs(current_timestamp.saturating_sub(entry_timestamp));
+    Instant::now().checked_sub(age).unwrap_or_else(Instant::now)
+}
+
+fn is_cache_entry_valid(entry_timestamp: u64, current_timestamp: u64) -> bool {
+    current_timestamp >= entry_timestamp
+        && (current_timestamp - entry_timestamp) < RESOURCES_CACHE_TTL_SECONDS
+}
+
+fn read_cache_file() -> Option<DiskResourceCache> {
+    let path = get_cache_path(RESOURCES_CACHE_FILENAME)?;
+    let content = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn write_cache_file(disk_cache: &DiskResourceCache) -> Result<(), Box<dyn std::error::Error>> {
+    let path = get_cache_path(RESOURCES_CACHE_FILENAME).ok_or("Cache path not available")?;
+    let json = serde_json::to_string(disk_cache)?;
+    fs::write(path, json)?;
+    Ok(())
+}
+
+fn convert_memory_entry_to_disk(
+    ns: &str,
+    kind: &str,
+    instant: &Instant,
+    lines: &[String],
+    current_timestamp: u64,
+) -> (String, DiskCacheEntry) {
+    let key = create_cache_key(ns, kind);
+    let timestamp = instant_to_timestamp(instant, current_timestamp);
+
+    let entry = DiskCacheEntry {
+        timestamp,
+        lines: lines.to_vec(),
+    };
+
+    (key, entry)
+}
+
+fn convert_memory_cache_to_disk(
+    cache: &HashMap<(String, String), (Instant, Vec<String>)>,
+) -> DiskResourceCache {
+    let current_timestamp = get_current_timestamp();
+
+    let data = cache
+        .iter()
+        .map(|((ns, kind), (instant, lines))| {
+            convert_memory_entry_to_disk(ns, kind, instant, lines, current_timestamp)
+        })
+        .collect();
+
+    DiskResourceCache { data }
+}
+
+fn convert_disk_entry_to_memory(
+    key: String,
+    entry: DiskCacheEntry,
+    current_timestamp: u64,
+) -> Option<((String, String), (Instant, Vec<String>))> {
+    if !is_cache_entry_valid(entry.timestamp, current_timestamp) {
+        return None;
     }
 
-    let disk_cache = DiskResourceCache { data: disk_map };
+    let (ns, kind) = parse_cache_key(&key)?;
+    let instant = timestamp_to_instant(entry.timestamp, current_timestamp);
 
-    if let Some(path) = get_cache_path("resources.json") {
-        if let Ok(json) = serde_json::to_string(&disk_cache) {
-            let _ = fs::write(path, json);
-        }
-    }
+    Some(((ns, kind), (instant, entry.lines)))
+}
+
+fn convert_disk_cache_to_memory(
+    disk_cache: DiskResourceCache,
+) -> HashMap<(String, String), (Instant, Vec<String>)> {
+    let current_timestamp = get_current_timestamp();
+
+    disk_cache
+        .data
+        .into_iter()
+        .filter_map(|(key, entry)| convert_disk_entry_to_memory(key, entry, current_timestamp))
+        .collect()
+}
+
+fn save_resource_cache_to_disk(cache: &HashMap<(String, String), (Instant, Vec<String>)>) {
+    let disk_cache = convert_memory_cache_to_disk(cache);
+    let _ = write_cache_file(&disk_cache);
 }
 
 fn load_resource_cache_from_disk() -> HashMap<(String, String), (Instant, Vec<String>)> {
-    let mut mem_cache = HashMap::new();
-    let now_sys = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+    read_cache_file()
+        .map(convert_disk_cache_to_memory)
         .unwrap_or_default()
-        .as_secs();
+}
 
-    if let Some(path) = get_cache_path("resources.json") {
-        if let Ok(content) = fs::read_to_string(path) {
-            if let Ok(disk_cache) = serde_json::from_str::<DiskResourceCache>(&content) {
-                for (key, entry) in disk_cache.data {
-                    // Проверяем валидность (30 секунд)
-                    // (текущее время >= времени записи) И (разница < 30 сек)
-                    if now_sys >= entry.timestamp && (now_sys - entry.timestamp) < 30 {
-                        // Разбираем ключ "ns|kind"
-                        if let Some((ns, kind)) = key.split_once('|') {
-                            // Восстанавливаем "фейковый" Instant для работы логики в памяти
-                            let age = Duration::from_secs(now_sys - entry.timestamp);
-                            let fake_instant =
-                                Instant::now().checked_sub(age).unwrap_or(Instant::now());
+fn get_project_dirs() -> Option<ProjectDirs> {
+    ProjectDirs::from("com", "kls", "kls")
+}
 
-                            mem_cache.insert(
-                                (ns.to_string(), kind.to_string()),
-                                (fake_instant, entry.lines),
-                            );
-                        }
-                    }
-                }
-            }
-        }
+fn get_cache_dir() -> Option<PathBuf> {
+    let proj_dirs = get_project_dirs()?;
+    Some(proj_dirs.cache_dir().to_path_buf())
+}
+
+fn ensure_dir_exists(dir: &Path) -> std::io::Result<()> {
+    if !dir.exists() {
+        fs::create_dir_all(dir)?;
     }
-    mem_cache
+    Ok(())
 }
 
 fn get_cache_path(filename: &str) -> Option<PathBuf> {
-    if let Some(proj_dirs) = ProjectDirs::from("com", "k8s-tui", "k8s-tui") {
-        let cache_dir = proj_dirs.cache_dir();
-        // Создаем директорию, если её нет
-        if !cache_dir.exists() {
-            let _ = fs::create_dir_all(cache_dir);
-        }
-        return Some(cache_dir.join(filename));
-    }
-    None
+    let cache_dir = get_cache_dir()?;
+    let _ = ensure_dir_exists(&cache_dir);
+    Some(cache_dir.join(filename))
+}
+
+fn write_json_file(path: &Path, json: &str) -> std::io::Result<()> {
+    fs::write(path, json)
+}
+
+fn read_file_content(path: &Path) -> std::io::Result<String> {
+    fs::read_to_string(path)
 }
 
 fn save_cache(filename: &str, data: &[String]) {
-    if let Some(path) = get_cache_path(filename) {
-        // Сериализуем в JSON
-        if let Ok(json) = serde_json::to_string(data) {
-            // Пишем файл синхронно (в отдельном потоке, это быстро для мелких файлов)
-            let _ = fs::write(path, json);
-        }
-    }
+    let path = match get_cache_path(filename) {
+        Some(p) => p,
+        None => return,
+    };
+
+    let json = match serde_json::to_string(data) {
+        Ok(j) => j,
+        Err(_) => return,
+    };
+
+    let _ = write_json_file(&path, &json);
 }
 
 fn load_cache(filename: &str) -> Option<Vec<String>> {
-    if let Some(path) = get_cache_path(filename) {
-        if path.exists() {
-            if let Ok(content) = fs::read_to_string(path) {
-                if let Ok(data) = serde_json::from_str::<Vec<String>>(&content) {
-                    if !data.is_empty() {
-                        return Some(data);
-                    }
-                }
-            }
-        }
+    let path = get_cache_path(filename)?;
+
+    if !path.exists() {
+        return None;
     }
-    None
+
+    let content = read_file_content(&path).ok()?;
+    let data: Vec<String> = serde_json::from_str(&content).ok()?;
+
+    if data.is_empty() { None } else { Some(data) }
 }
 
 // --- KUBECTL HELPER FUNCTIONS ---
