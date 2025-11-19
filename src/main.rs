@@ -22,7 +22,6 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 // --- CONFIGURATION ---
-const HEADER_HEIGHT: u16 = 3;
 const FOOTER_HEIGHT: u16 = 3;
 
 const TOP_API_RESOURCES: &[&str] = &[
@@ -635,7 +634,7 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
         let border_style = if is_active_menu {
             Style::default().fg(Color::Green)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(Color::Gray)
         };
 
         let mut title = menu.title.clone();
