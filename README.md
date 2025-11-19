@@ -25,6 +25,7 @@
 - `Escape` or `q` - exit filter mode or `kls` itself
 - `Backspace` - remove letter from filter
 - `TAB`, arrow keys, `PgUp`, `PgDn`, `Home`, `End` - navigation
+- `Ctrl+r` - reload namespaces and kinds
 
 ![kls in action](./images/kls.gif)
 
@@ -45,7 +46,7 @@ For `jaq` and `hl` installation refer to respective repositories:
 
 For kubectl installation refer to [kubectl installation guide](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
 
-### kls Installation
+### kls installation
 
 ```
 cargo install --git https://github.com/digitalstudium/kls
