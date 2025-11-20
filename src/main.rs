@@ -1420,30 +1420,39 @@ fn render_footer(f: &mut ratatui::Frame, footer_area: ratatui::layout::Rect) {
 }
 
 fn render_context_popup(f: &mut ratatui::Frame, app: &mut App) {
-    let block = Block::default()
-        .title("Select Context")
-        .borders(Borders::ALL)
-        .style(Style::default().bg(Color::DarkGray));
-
     let area = centered_rect(60, 50, f.area());
 
     // очищаем область под попапом
     f.render_widget(Clear, area);
 
-    let items: Vec<ListItem> = app
-        .context_items
+    let block = context_popup_block();
+    let items = build_context_items(&app.context_items);
+    let list = context_popup_list(items, block);
+
+    f.render_stateful_widget(list, area, &mut app.context_state);
+}
+
+fn context_popup_block<'a>() -> Block<'a> {
+    Block::default()
+        .title("Select Context")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::DarkGray))
+}
+
+fn build_context_items<'a>(items: &'a [String]) -> Vec<ListItem<'a>> {
+    items
         .iter()
         .map(|i| ListItem::new(Line::from(i.as_str())))
-        .collect();
+        .collect()
+}
 
-    let list = List::new(items)
+fn context_popup_list<'a>(items: Vec<ListItem<'a>>, block: Block<'a>) -> List<'a> {
+    List::new(items)
         .block(block)
         .highlight_style(
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol(">> ");
-
-    f.render_stateful_widget(list, area, &mut app.context_state);
+        .highlight_symbol(">> ")
 }
