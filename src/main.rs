@@ -1140,15 +1140,29 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 fn ui(f: &mut ratatui::Frame, app: &mut App) {
     let area = f.area();
 
+    let (body_area, footer_area) = split_main_areas(area);
+    let menu_chunks = split_menu_areas(body_area);
+
+    render_menus(f, app, &menu_chunks);
+
+    if app.show_context_popup {
+        render_context_popup(f, app);
+    }
+
+    render_footer(f, footer_area);
+}
+
+fn split_main_areas(area: ratatui::layout::Rect) -> (ratatui::layout::Rect, ratatui::layout::Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(3), Constraint::Length(FOOTER_HEIGHT)])
         .split(area);
 
-    let body_area = chunks[0];
-    let footer_area = chunks[1];
+    (chunks[0], chunks[1])
+}
 
-    let menu_chunks = Layout::default()
+fn split_menu_areas(body_area: ratatui::layout::Rect) -> [ratatui::layout::Rect; 3] {
+    let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(20),
@@ -1157,99 +1171,121 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
         ])
         .split(body_area);
 
+    [chunks[0], chunks[1], chunks[2]]
+}
+
+fn render_menus(f: &mut ratatui::Frame, app: &mut App, menu_chunks: &[ratatui::layout::Rect; 3]) {
     for (i, menu) in app.menus.iter_mut().enumerate() {
-        let filtered_items = menu.filtered_items();
-
-        let items: Vec<ListItem> = filtered_items
-            .iter()
-            .map(|s| {
-                // Подсветка для loading...
-                if menu.is_loading {
-                    ListItem::new(Line::from(Span::styled(
-                        s,
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::ITALIC),
-                    )))
-                } else {
-                    ListItem::new(Line::from(s.as_str()))
-                }
-            })
-            .collect();
-
         let is_active_menu = i == app.selected_menu_index;
+        let area = menu_chunks[i];
+        render_single_menu(f, menu, area, is_active_menu);
+    }
+}
 
-        let border_style = if is_active_menu {
-            Style::default().fg(Color::Green)
-        } else {
-            Style::default().fg(Color::Gray)
-        };
+fn render_single_menu(
+    f: &mut ratatui::Frame,
+    menu: &mut Menu,
+    area: ratatui::layout::Rect,
+    is_active_menu: bool,
+) {
+    let filtered_items = menu.filtered_items();
 
-        let mut title = menu.title.clone();
-        if menu.filter_mode {
-            title = format!("{} [/{}]", title, menu.filter);
-        } else if !menu.filter.is_empty() {
-            title = format!("{} (/{})", title, menu.filter);
-        }
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(
-                title,
-                if is_active_menu {
-                    Style::default().add_modifier(Modifier::BOLD)
-                } else {
+    let items: Vec<ListItem> = filtered_items
+        .iter()
+        .map(|s| {
+            if menu.is_loading {
+                // подсветка loading...
+                ListItem::new(Line::from(Span::styled(
+                    s,
                     Style::default()
-                },
-            ))
-            .border_style(border_style);
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::ITALIC),
+                )))
+            } else {
+                ListItem::new(Line::from(s.as_str()))
+            }
+        })
+        .collect();
 
-        // Если загрузка, не показываем хайлайт курсора
-        let list = if menu.is_loading {
-            List::new(items).block(block)
-        } else {
-            List::new(items)
-                .block(block)
-                .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD))
-                .highlight_symbol("> ")
-        };
+    let border_style = if is_active_menu {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Gray)
+    };
 
-        f.render_stateful_widget(list, menu_chunks[i], &mut menu.state);
+    let title = build_menu_title(menu);
+
+    let title_style = if is_active_menu {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(title, title_style))
+        .border_style(border_style);
+
+    let list = if menu.is_loading {
+        // Если загрузка — без подсветки курсора
+        List::new(items).block(block)
+    } else {
+        List::new(items)
+            .block(block)
+            .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD))
+            .highlight_symbol("> ")
+    };
+
+    f.render_stateful_widget(list, area, &mut menu.state);
+}
+
+fn build_menu_title(menu: &Menu) -> String {
+    let mut title = menu.title.clone();
+
+    if menu.filter_mode {
+        title = format!("{} [/{}]", title, menu.filter);
+    } else if !menu.filter.is_empty() {
+        title = format!("{} (/{})", title, menu.filter);
     }
 
+    title
+}
+
+fn render_footer(f: &mut ratatui::Frame, footer_area: ratatui::layout::Rect) {
     let footer_text = "Tab/Arrows: Navigate | /: Filter | Esc: Clear/Exit | q: Quit | ^Y: Yaml | ^D: Describe | ^L: Logs | ^X: Exec";
+
     let footer = Paragraph::new(footer_text)
         .style(Style::default().fg(Color::Yellow))
         .block(Block::default().borders(Borders::TOP));
 
-    if app.show_context_popup {
-        let block = Block::default()
-            .title("Select Context")
-            .borders(Borders::ALL)
-            .style(Style::default().bg(Color::DarkGray)); // Фон попапа
-
-        let area = centered_rect(60, 50, f.area());
-
-        // Очищаем область под попапом, чтобы текст снизу не просвечивал
-        f.render_widget(Clear, area);
-
-        let items: Vec<ListItem> = app
-            .context_items
-            .iter()
-            .map(|i| ListItem::new(Line::from(i.as_str())))
-            .collect();
-
-        let list = List::new(items)
-            .block(block)
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol(">> ");
-
-        f.render_stateful_widget(list, area, &mut app.context_state);
-    }
-
     f.render_widget(footer, footer_area);
+}
+
+fn render_context_popup(f: &mut ratatui::Frame, app: &mut App) {
+    let block = Block::default()
+        .title("Select Context")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::DarkGray));
+
+    let area = centered_rect(60, 50, f.area());
+
+    // очищаем область под попапом
+    f.render_widget(Clear, area);
+
+    let items: Vec<ListItem> = app
+        .context_items
+        .iter()
+        .map(|i| ListItem::new(Line::from(i.as_str())))
+        .collect();
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(">> ");
+
+    f.render_stateful_widget(list, area, &mut app.context_state);
 }
