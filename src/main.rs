@@ -244,34 +244,53 @@ async fn run_kubectl_async(args: Vec<String>) -> Result<Vec<String>> {
         .collect())
 }
 
-// Переписали на async, чтобы не блокировать старт
 async fn get_namespaces_async() -> Result<Vec<String>> {
-    let all_ns_args = vec![
+    let all_ns = fetch_all_namespaces().await;
+    let current_ns = fetch_current_namespace().await;
+
+    Ok(merge_current_and_all_ns(all_ns, current_ns))
+}
+
+fn all_namespaces_args() -> Vec<String> {
+    vec![
         "get".to_string(),
         "ns".to_string(),
         "--no-headers".to_string(),
         "-o".to_string(),
         "custom-columns=NAME:.metadata.name".to_string(),
-    ];
+    ]
+}
 
-    let current_ns_args = vec![
+fn current_namespace_args() -> Vec<String> {
+    vec![
         "config".to_string(),
         "view".to_string(),
         "--minify".to_string(),
         "--output".to_string(),
         "jsonpath={..namespace}".to_string(),
-    ];
+    ]
+}
 
-    let all_ns = run_kubectl_async(all_ns_args).await.unwrap_or_default();
-    let current_ns_vec = run_kubectl_async(current_ns_args).await.unwrap_or_default();
-    let current_ns = current_ns_vec.first().cloned();
+async fn fetch_all_namespaces() -> Vec<String> {
+    let args = all_namespaces_args();
+    run_kubectl_async(args).await.unwrap_or_default()
+}
 
-    if let Some(curr) = current_ns {
-        let mut result = vec![curr.clone()];
-        result.extend(all_ns.into_iter().filter(|ns| ns != &curr));
-        Ok(result)
-    } else {
-        Ok(all_ns)
+async fn fetch_current_namespace() -> Option<String> {
+    let args = current_namespace_args();
+    let current_ns_vec = run_kubectl_async(args).await.unwrap_or_default();
+    current_ns_vec.first().cloned()
+}
+
+fn merge_current_and_all_ns(all_ns: Vec<String>, current_ns: Option<String>) -> Vec<String> {
+    match current_ns {
+        Some(curr) => {
+            let mut result = Vec::with_capacity(all_ns.len() + 1);
+            result.push(curr.clone());
+            result.extend(all_ns.into_iter().filter(|ns| ns != &curr));
+            result
+        }
+        None => all_ns,
     }
 }
 
