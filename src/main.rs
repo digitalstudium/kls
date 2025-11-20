@@ -974,43 +974,51 @@ fn apply_input_results(app: &mut App, outcome: &InputOutcome, previous_menu_inde
 
 fn handle_context_popup_key(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Esc => {
-            app.show_context_popup = false;
-        }
-        KeyCode::Down | KeyCode::Char('j') => {
-            let len = app.context_items.len();
-            let i = match app.context_state.selected() {
-                Some(i) => {
-                    if i >= len.saturating_sub(1) {
-                        0
-                    } else {
-                        i + 1
-                    }
-                }
-                None => 0,
-            };
-            app.context_state.select(Some(i));
-        }
-        KeyCode::Up | KeyCode::Char('k') => {
-            let len = app.context_items.len();
-            let i = match app.context_state.selected() {
-                Some(0) | None => len.saturating_sub(1),
-                Some(i) => i - 1,
-            };
-            app.context_state.select(Some(i));
-        }
-        KeyCode::Enter => {
-            if let Some(idx) = app.context_state.selected() {
-                if let Some(ctx_name) = app.context_items.get(idx) {
-                    if ctx_name != "loading..." {
-                        let _ = switch_context_sync(ctx_name);
-                        app.show_context_popup = false;
-                        app.refresh_metadata();
-                    }
-                }
+        KeyCode::Esc => close_context_popup(app),
+        KeyCode::Down | KeyCode::Char('j') => move_context_selection_down(app),
+        KeyCode::Up | KeyCode::Char('k') => move_context_selection_up(app),
+        KeyCode::Enter => apply_selected_context(app),
+        _ => {}
+    }
+}
+
+fn close_context_popup(app: &mut App) {
+    app.show_context_popup = false;
+}
+
+fn move_context_selection_down(app: &mut App) {
+    let len = app.context_items.len();
+    let i = match app.context_state.selected() {
+        Some(i) => {
+            if i >= len.saturating_sub(1) {
+                0
+            } else {
+                i + 1
             }
         }
-        _ => {}
+        None => 0,
+    };
+    app.context_state.select(Some(i));
+}
+
+fn move_context_selection_up(app: &mut App) {
+    let len = app.context_items.len();
+    let i = match app.context_state.selected() {
+        Some(0) | None => len.saturating_sub(1),
+        Some(i) => i - 1,
+    };
+    app.context_state.select(Some(i));
+}
+
+fn apply_selected_context(app: &mut App) {
+    if let Some(idx) = app.context_state.selected() {
+        if let Some(ctx_name) = app.context_items.get(idx) {
+            if ctx_name != "loading..." {
+                let _ = switch_context_sync(ctx_name);
+                app.show_context_popup = false;
+                app.refresh_metadata();
+            }
+        }
     }
 }
 
