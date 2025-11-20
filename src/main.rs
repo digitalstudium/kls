@@ -791,67 +791,21 @@ async fn run_loop<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
 ) -> Result<()> {
-    // Таймер для автообновления
     let ui_tick = Duration::from_millis(100); // частота проверки ввода/событий
     let refresh_interval = Duration::from_secs(2); // раз в 2 сек обновляем ресурсы
     let mut last_refresh = Instant::now();
 
     loop {
-        while let Ok(event) = app.event_rx.try_recv() {
-            match event {
-                AppEvent::Contexts(items) => {
-                    app.context_items = items;
-                    if !app.context_items.is_empty() {
-                        app.context_state.select(Some(0));
-                    }
-                }
-                AppEvent::Namespaces(items) => {
-                    app.menus[0].set_items(items);
-                    if !app.menus[1].is_loading {
-                        app.trigger_resource_fetch(false);
-                    }
-                }
-                AppEvent::ApiResources(items) => {
-                    app.menus[1].set_items(items);
-                    if !app.menus[0].is_loading {
-                        app.trigger_resource_fetch(false);
-                    }
-                }
-                // Принимаем ID и проверяем его
-                // Внутри run_loop / match event
-                AppEvent::Resources(items, id) => {
-                    if id == app.fetch_id {
-                        if let Some(ns) = app.menus[0].selected_item() {
-                            if let Some(kind) = app.menus[1].selected_item() {
-                                // Обновляем RAM (быстро)
-                                app.resource_cache.insert(
-                                    (ns.clone(), kind.clone()),
-                                    (Instant::now(), items.clone()),
-                                );
-
-                                // --- ИСПРАВЛЕНИЕ: Сохраняем на диск асинхронно ---
-                                let cache_clone = app.resource_cache.clone(); // Клонирование может быть дорогим, но дешевле IO
-                                tokio::task::spawn_blocking(move || {
-                                    save_resource_cache_to_disk(&cache_clone);
-                                });
-                                // ------------------------------------------------
-                            }
-                        }
-                        app.menus[2].set_items(items);
-                    }
-                }
-            }
-        }
+        // было: большой while + match
+        process_pending_events(app);
 
         terminal.draw(|f| ui(f, app))?;
 
-        // 3. Автообновление ресурсов раз в refresh_interval
         if last_refresh.elapsed() >= refresh_interval && !app.menus[2].is_loading {
             app.trigger_resource_fetch(true); // тихое обновление
             last_refresh = Instant::now();
         }
 
-        // 4. Ждём ввод только ui_tick (короткий таймаут)
         if event::poll(ui_tick)? {
             if let Event::Key(key) = event::read()? {
                 handle_input(app, key, terminal)?;
@@ -862,6 +816,62 @@ async fn run_loop<B: ratatui::backend::Backend>(
             return Ok(());
         }
     }
+}
+
+fn process_pending_events(app: &mut App) {
+    while let Ok(event) = app.event_rx.try_recv() {
+        handle_app_event(app, event);
+    }
+}
+
+fn handle_app_event(app: &mut App, event: AppEvent) {
+    match event {
+        AppEvent::Contexts(items) => handle_contexts_event(app, items),
+        AppEvent::Namespaces(items) => handle_namespaces_event(app, items),
+        AppEvent::ApiResources(items) => handle_api_resources_event(app, items),
+        AppEvent::Resources(items, id) => handle_resources_event(app, items, id),
+    }
+}
+
+fn handle_contexts_event(app: &mut App, items: Vec<String>) {
+    app.context_items = items;
+    if !app.context_items.is_empty() {
+        app.context_state.select(Some(0));
+    }
+}
+
+fn handle_namespaces_event(app: &mut App, items: Vec<String>) {
+    app.menus[0].set_items(items);
+    if !app.menus[1].is_loading {
+        app.trigger_resource_fetch(false);
+    }
+}
+
+fn handle_api_resources_event(app: &mut App, items: Vec<String>) {
+    app.menus[1].set_items(items);
+    if !app.menus[0].is_loading {
+        app.trigger_resource_fetch(false);
+    }
+}
+
+fn handle_resources_event(app: &mut App, items: Vec<String>, id: usize) {
+    if id != app.fetch_id {
+        return;
+    }
+
+    if let Some(ns) = app.menus[0].selected_item() {
+        if let Some(kind) = app.menus[1].selected_item() {
+            app.resource_cache
+                .insert((ns.clone(), kind.clone()), (Instant::now(), items.clone()));
+
+            let cache_clone = app.resource_cache.clone();
+            tokio::task::spawn_blocking(move || {
+                save_resource_cache_to_disk(&cache_clone);
+            });
+        }
+    }
+
+    app.menus[2].set_items(items);
 }
 
 fn handle_input<B: Backend>(
