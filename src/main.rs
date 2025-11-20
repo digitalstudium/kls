@@ -1,7 +1,9 @@
 use anyhow::Context;
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -9,6 +11,7 @@ use directories::ProjectDirs;
 
 use ratatui::{
     Terminal,
+    backend::Backend,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -838,206 +841,51 @@ async fn run_loop<B: ratatui::backend::Backend>(
     }
 }
 
-fn handle_input<B: ratatui::backend::Backend>(
+fn handle_input<B: Backend>(
     app: &mut App,
-    key: event::KeyEvent,
+    key: KeyEvent,
     terminal: &mut Terminal<B>,
 ) -> Result<()> {
+    // 1. Если открыт popup контекстов – обрабатываем только его
     if app.show_context_popup {
-        match key.code {
-            KeyCode::Esc => {
-                app.show_context_popup = false;
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                let i = match app.context_state.selected() {
-                    Some(i) => {
-                        if i >= app.context_items.len() - 1 {
-                            0
-                        } else {
-                            i + 1
-                        }
-                    }
-                    None => 0,
-                };
-                app.context_state.select(Some(i));
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                let i = match app.context_state.selected() {
-                    Some(i) => {
-                        if i == 0 {
-                            app.context_items.len() - 1
-                        } else {
-                            i - 1
-                        }
-                    }
-                    None => 0,
-                };
-                app.context_state.select(Some(i));
-            }
-            KeyCode::Enter => {
-                if let Some(idx) = app.context_state.selected() {
-                    if let Some(ctx_name) = app.context_items.get(idx) {
-                        if ctx_name != "loading..." {
-                            // 1. Переключаем контекст
-                            let _ = switch_context_sync(ctx_name);
-
-                            // 2. Закрываем попап
-                            app.show_context_popup = false;
-
-                            // 3. Полный сброс и перезагрузка
-                            app.refresh_metadata();
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-        return Ok(()); // <--- ВАЖНО: Выходим, чтобы не сработала остальная логика
+        handle_context_popup_key(app, key);
+        return Ok(());
     }
-    let menu_idx = app.selected_menu_index;
-    let menu = app.active_menu_mut();
 
+    let menu_idx = app.selected_menu_index;
     let mut selection_changed = false;
     let mut force_refresh = false;
+    let mut should_stop = false;
 
-    let is_navigation = match key.code {
-        KeyCode::Down
-        | KeyCode::Up
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::Right
-        | KeyCode::Left
-        | KeyCode::Tab
-        | KeyCode::BackTab => true,
-        _ => false,
-    };
-
-    if is_navigation {
-        match key.code {
-            KeyCode::Down => {
-                menu.next();
-                selection_changed = true;
-            }
-            KeyCode::Up => {
-                menu.previous();
-                selection_changed = true;
-            }
-            KeyCode::Home => {
-                if !menu.is_loading {
-                    menu.state.select(Some(0));
-                    selection_changed = true;
-                }
-            }
-            KeyCode::Right | KeyCode::Tab => app.next_menu(),
-            KeyCode::Left | KeyCode::BackTab => app.previous_menu(),
-            _ => {}
-        }
-    } else if menu.filter_mode {
-        match key.code {
-            KeyCode::Esc => {
-                menu.exit_filter_mode();
-                selection_changed = true;
-            }
-            KeyCode::Enter => {
-                menu.filter_mode = false;
-            }
-            KeyCode::Backspace => {
-                menu.filter.pop();
-                menu.update_selection_after_filter();
-                selection_changed = true;
-            }
-            KeyCode::Char(c) => {
-                menu.filter.push(c);
-                menu.update_selection_after_filter();
-                selection_changed = true;
-            }
-            _ => {}
-        }
+    // 2. Навигация по спискам / меню
+    if is_navigation_key(key.code) {
+        handle_navigation_keys(app, key.code, &mut selection_changed);
     } else {
-        match key.code {
-            KeyCode::Char('q') => app.should_quit = true,
-            KeyCode::Char('/') => {
-                if !menu.is_loading {
-                    menu.enter_filter_mode()
-                }
-            }
-            KeyCode::Char('j') => {
-                menu.next();
-                selection_changed = true;
-            }
-            KeyCode::Char('k') => {
-                menu.previous();
-                selection_changed = true;
-            }
+        // 3. В зависимости от режима: фильтр или обычный режим
+        let filter_mode = {
+            let menu = app.active_menu_mut();
+            menu.filter_mode
+        };
 
-            KeyCode::Esc => {
-                if !menu.filter_mode && !menu.filter.is_empty() {
-                    menu.exit_filter_mode();
-                    selection_changed = true;
-                } else {
-                    app.should_quit = true;
-                }
-            }
-
-            // --- KEY BINDINGS (Ctrl+Key) ---
-            KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if c == 's' {
-                    app.open_context_popup();
-                    return Ok(());
-                }
-                if c == 'r' {
-                    app.refresh_metadata();
-                    return Ok(()); // Выходим, чтобы не сработала логика ниже
-                }
-                if let Some((ns, kind, name)) = app.get_current_selection() {
-                    let command_template = match c {
-                        'y' => Some(
-                            "kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml",
-                        ),
-                        'd' => Some(
-                            "kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml",
-                        ),
-                        'e' => Some("kubectl -n {namespace} edit {api_resource} {resource}"),
-                        'l' => Some("kubectl -n {namespace} logs {resource} | hl"),
-                        'x' => Some("kubectl -n {namespace} exec -it {resource} -- sh"),
-                        'n' => Some(
-                            "kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot",
-                        ),
-                        'a' => Some(
-                            "kubectl -n {namespace} logs {resource} -c istio-proxy | jaq -Rc 'fromjson? | .' --sort-keys | hl",
-                        ),
-                        'p' => Some(
-                            "kubectl -n {namespace} exec -it {resource} -c istio-proxy -- bash",
-                        ),
-                        _ => None,
-                    };
-
-                    if let Some(tmpl) = command_template {
-                        let mut cmd = tmpl
-                            .replace("{namespace}", &ns)
-                            .replace("{api_resource}", &kind)
-                            .replace("{resource}", &name);
-
-                        if cmd.contains("batcat") {
-                            cmd.push_str(BATCAT_STYLE);
-                        }
-
-                        execute_shell_command(terminal, &cmd)?;
-                    }
-                }
-            }
-            KeyCode::Delete => {
-                if let Some((ns, kind, name)) = app.get_current_selection() {
-                    let cmd = format!("kubectl -n {} delete {} {}", ns, kind, name);
-                    execute_shell_command(terminal, &cmd)?;
-                    force_refresh = true;
-                }
-            }
-            _ => {}
+        if filter_mode {
+            handle_filter_mode_keys(app, key.code, &mut selection_changed);
+        } else {
+            should_stop = handle_normal_keys(
+                app,
+                key,
+                terminal,
+                &mut selection_changed,
+                &mut force_refresh,
+            )?;
         }
     }
 
-    // Обновление ресурсов только если мы в первых двух меню и выбор изменился
+    // Для Ctrl+S / Ctrl+R нужно выйти раньше, как в оригинале
+    if should_stop {
+        return Ok(());
+    }
+
+    // 4. Обновление ресурсов
     if selection_changed && (menu_idx == 0 || menu_idx == 1) {
         app.trigger_resource_fetch(false);
     }
@@ -1047,6 +895,226 @@ fn handle_input<B: ratatui::backend::Backend>(
     }
 
     Ok(())
+}
+
+fn handle_context_popup_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.show_context_popup = false;
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let len = app.context_items.len();
+            let i = match app.context_state.selected() {
+                Some(i) => {
+                    if i >= len.saturating_sub(1) {
+                        0
+                    } else {
+                        i + 1
+                    }
+                }
+                None => 0,
+            };
+            app.context_state.select(Some(i));
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            let len = app.context_items.len();
+            let i = match app.context_state.selected() {
+                Some(0) | None => len.saturating_sub(1),
+                Some(i) => i - 1,
+            };
+            app.context_state.select(Some(i));
+        }
+        KeyCode::Enter => {
+            if let Some(idx) = app.context_state.selected() {
+                if let Some(ctx_name) = app.context_items.get(idx) {
+                    if ctx_name != "loading..." {
+                        let _ = switch_context_sync(ctx_name);
+                        app.show_context_popup = false;
+                        app.refresh_metadata();
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_navigation_key(code: KeyCode) -> bool {
+    matches!(
+        code,
+        KeyCode::Down
+            | KeyCode::Up
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::Right
+            | KeyCode::Left
+            | KeyCode::Tab
+            | KeyCode::BackTab
+    )
+}
+
+fn handle_navigation_keys(app: &mut App, code: KeyCode, selection_changed: &mut bool) {
+    match code {
+        KeyCode::Down => {
+            app.active_menu_mut().next();
+            *selection_changed = true;
+        }
+        KeyCode::Up => {
+            app.active_menu_mut().previous();
+            *selection_changed = true;
+        }
+        KeyCode::Home => {
+            let menu = app.active_menu_mut();
+            if !menu.is_loading {
+                menu.state.select(Some(0));
+                *selection_changed = true;
+            }
+        }
+        KeyCode::Right | KeyCode::Tab => app.next_menu(),
+        KeyCode::Left | KeyCode::BackTab => app.previous_menu(),
+        KeyCode::End => {
+            // в исходном коде End помечен как "навигационный", но не используется
+        }
+        _ => {}
+    }
+}
+
+fn handle_filter_mode_keys(app: &mut App, code: KeyCode, selection_changed: &mut bool) {
+    let menu = app.active_menu_mut();
+
+    match code {
+        KeyCode::Esc => {
+            menu.exit_filter_mode();
+            *selection_changed = true;
+        }
+        KeyCode::Enter => {
+            menu.filter_mode = false;
+        }
+        KeyCode::Backspace => {
+            menu.filter.pop();
+            menu.update_selection_after_filter();
+            *selection_changed = true;
+        }
+        KeyCode::Char(c) => {
+            menu.filter.push(c);
+            menu.update_selection_after_filter();
+            *selection_changed = true;
+        }
+        _ => {}
+    }
+}
+
+fn handle_normal_keys<B: Backend>(
+    app: &mut App,
+    key: KeyEvent,
+    terminal: &mut Terminal<B>,
+    selection_changed: &mut bool,
+    force_refresh: &mut bool,
+) -> Result<bool> {
+    match key.code {
+        KeyCode::Char('q') => {
+            app.should_quit = true;
+        }
+        KeyCode::Char('/') => {
+            let menu = app.active_menu_mut();
+            if !menu.is_loading {
+                menu.enter_filter_mode();
+            }
+        }
+        KeyCode::Char('j') => {
+            app.active_menu_mut().next();
+            *selection_changed = true;
+        }
+        KeyCode::Char('k') => {
+            app.active_menu_mut().previous();
+            *selection_changed = true;
+        }
+        KeyCode::Esc => {
+            let menu = app.active_menu_mut();
+            if !menu.filter_mode && !menu.filter.is_empty() {
+                menu.exit_filter_mode();
+                *selection_changed = true;
+            } else {
+                app.should_quit = true;
+            }
+        }
+
+        // --- Ctrl + Key ---
+        KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if handle_ctrl_shortcuts(app, c, terminal)? {
+                // true = нужно немедленно выйти из handle_input (как в Ctrl+S/Ctrl+R)
+                return Ok(true);
+            }
+        }
+
+        // Удаление ресурса
+        KeyCode::Delete => {
+            if let Some((ns, kind, name)) = app.get_current_selection() {
+                let cmd = format!("kubectl -n {} delete {} {}", ns, kind, name);
+                execute_shell_command(terminal, &cmd)?;
+                *force_refresh = true;
+            }
+        }
+
+        _ => {}
+    }
+
+    Ok(false)
+}
+
+fn handle_ctrl_shortcuts<B: Backend>(
+    app: &mut App,
+    c: char,
+    terminal: &mut Terminal<B>,
+) -> Result<bool> {
+    // true -> нужно немедленно выйти из handle_input
+    match c {
+        's' => {
+            app.open_context_popup();
+            return Ok(true);
+        }
+        'r' => {
+            app.refresh_metadata();
+            return Ok(true);
+        }
+
+        'y' | 'd' | 'e' | 'l' | 'x' | 'n' | 'a' | 'p' => {
+            if let Some((ns, kind, name)) = app.get_current_selection() {
+                let command_template = match c {
+                    'y' => {
+                        "kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml"
+                    }
+                    'd' => {
+                        "kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml"
+                    }
+                    'e' => "kubectl -n {namespace} edit {api_resource} {resource}",
+                    'l' => "kubectl -n {namespace} logs {resource} | hl",
+                    'x' => "kubectl -n {namespace} exec -it {resource} -- sh",
+                    'n' => "kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot",
+                    'a' => {
+                        "kubectl -n {namespace} logs {resource} -c istio-proxy | jaq -Rc 'fromjson? | .' --sort-keys | hl"
+                    }
+                    'p' => "kubectl -n {namespace} exec -it {resource} -c istio-proxy -- bash",
+                    _ => unreachable!(),
+                };
+
+                let mut cmd = command_template
+                    .replace("{namespace}", &ns)
+                    .replace("{api_resource}", &kind)
+                    .replace("{resource}", &name);
+
+                if cmd.contains("batcat") {
+                    cmd.push_str(BATCAT_STYLE);
+                }
+
+                execute_shell_command(terminal, &cmd)?;
+            }
+        }
+
+        _ => {}
+    }
+
+    Ok(false)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
