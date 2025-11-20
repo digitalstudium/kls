@@ -276,33 +276,48 @@ async fn get_namespaces_async() -> Result<Vec<String>> {
 }
 
 async fn get_api_resources_async() -> Result<Vec<String>> {
-    let args = vec![
+    let args = api_resources_args();
+    let output = run_kubectl_async(args).await.unwrap_or_default();
+
+    let cluster_resources = parse_cluster_resources(&output);
+    let result = merge_top_and_cluster_resources(cluster_resources);
+
+    Ok(result)
+}
+
+fn api_resources_args() -> Vec<String> {
+    vec![
         "api-resources".to_string(),
         "--no-headers".to_string(),
         "--verbs=get".to_string(),
-    ];
-    let output = run_kubectl_async(args).await.unwrap_or_default();
+    ]
+}
 
-    let cluster_resources: Vec<String> = output
+fn parse_cluster_resources(lines: &[String]) -> Vec<String> {
+    lines
         .iter()
         .filter_map(|line| line.split_whitespace().next().map(|s| s.to_string()))
-        .collect();
+        .collect()
+}
 
+fn merge_top_and_cluster_resources(cluster_resources: Vec<String>) -> Vec<String> {
     let mut result = Vec::new();
     let mut seen = HashSet::new();
 
     for &res in TOP_API_RESOURCES {
-        result.push(res.to_string());
-        seen.insert(res.to_string());
+        let s = res.to_string();
+        result.push(s.clone());
+        seen.insert(s);
     }
 
     for res in cluster_resources {
         if !seen.contains(&res) {
-            result.push(res.clone());
-            seen.insert(res);
+            seen.insert(res.clone());
+            result.push(res);
         }
     }
-    Ok(result)
+
+    result
 }
 
 async fn get_contexts_async() -> Result<Vec<String>> {
