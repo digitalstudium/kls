@@ -1106,54 +1106,79 @@ fn handle_ctrl_shortcuts<B: Backend>(
     c: char,
     terminal: &mut Terminal<B>,
 ) -> Result<bool> {
-    // true -> нужно немедленно выйти из handle_input
-    match c {
-        's' => {
-            app.open_context_popup();
-            return Ok(true);
-        }
-        'r' => {
-            app.refresh_metadata();
-            return Ok(true);
-        }
+    if handle_ctrl_quick_actions(app, c) {
+        // true = нужно немедленно выйти из handle_input (Ctrl+S/Ctrl+R)
+        return Ok(true);
+    }
 
-        'y' | 'd' | 'e' | 'l' | 'x' | 'n' | 'a' | 'p' => {
-            if let Some((ns, kind, name)) = app.get_current_selection() {
-                let command_template = match c {
-                    'y' => {
-                        "kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml"
-                    }
-                    'd' => {
-                        "kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml"
-                    }
-                    'e' => "kubectl -n {namespace} edit {api_resource} {resource}",
-                    'l' => "kubectl -n {namespace} logs {resource} | hl",
-                    'x' => "kubectl -n {namespace} exec -it {resource} -- sh",
-                    'n' => "kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot",
-                    'a' => {
-                        "kubectl -n {namespace} logs {resource} -c istio-proxy | jaq -Rc 'fromjson? | .' --sort-keys | hl"
-                    }
-                    'p' => "kubectl -n {namespace} exec -it {resource} -c istio-proxy -- bash",
-                    _ => unreachable!(),
-                };
-
-                let mut cmd = command_template
-                    .replace("{namespace}", &ns)
-                    .replace("{api_resource}", &kind)
-                    .replace("{resource}", &name);
-
-                if cmd.contains("batcat") {
-                    cmd.push_str(BATCAT_STYLE);
-                }
-
-                execute_shell_command(terminal, &cmd)?;
-            }
-        }
-
-        _ => {}
+    if is_ctrl_resource_action(c) {
+        handle_ctrl_resource_action(app, c, terminal)?;
     }
 
     Ok(false)
+}
+
+fn handle_ctrl_quick_actions(app: &mut App, c: char) -> bool {
+    match c {
+        's' => {
+            app.open_context_popup();
+            true
+        }
+        'r' => {
+            app.refresh_metadata();
+            true
+        }
+        _ => false,
+    }
+}
+
+fn is_ctrl_resource_action(c: char) -> bool {
+    matches!(c, 'y' | 'd' | 'e' | 'l' | 'x' | 'n' | 'a' | 'p')
+}
+
+fn handle_ctrl_resource_action<B: Backend>(
+    app: &mut App,
+    c: char,
+    terminal: &mut Terminal<B>,
+) -> Result<()> {
+    if let Some((ns, kind, name)) = app.get_current_selection() {
+        if let Some(template) = ctrl_command_template(c) {
+            let mut cmd = build_shell_command(template, &ns, &kind, &name);
+
+            if cmd.contains("batcat") {
+                cmd.push_str(BATCAT_STYLE);
+            }
+
+            execute_shell_command(terminal, &cmd)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn ctrl_command_template(c: char) -> Option<&'static str> {
+    match c {
+        'y' => {
+            Some("kubectl -n {namespace} get {api_resource} {resource} -o yaml | batcat -l yaml")
+        }
+        'd' => Some("kubectl -n {namespace} describe {api_resource} {resource} | batcat -l yaml"),
+        'e' => Some("kubectl -n {namespace} edit {api_resource} {resource}"),
+        'l' => Some("kubectl -n {namespace} logs {resource} | hl"),
+        'x' => Some("kubectl -n {namespace} exec -it {resource} -- sh"),
+        'n' => Some("kubectl -n {namespace} debug {resource} -it --image=nicolaka/netshoot"),
+        'a' => Some(
+            "kubectl -n {namespace} logs {resource} -c istio-proxy | jaq -Rc 'fromjson? | .' --sort-keys | hl",
+        ),
+        'p' => Some("kubectl -n {namespace} exec -it {resource} -c istio-proxy -- bash"),
+        _ => None,
+    }
+}
+
+fn build_shell_command(template: &str, ns: &str, kind: &str, name: &str) -> String {
+    template
+        .replace("{namespace}", ns)
+        .replace("{api_resource}", kind)
+        .replace("{resource}", name)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
