@@ -1189,37 +1189,11 @@ fn render_single_menu(
     is_active_menu: bool,
 ) {
     let filtered_items = menu.filtered_items();
+    let items = build_menu_items(menu, &filtered_items);
 
-    let items: Vec<ListItem> = filtered_items
-        .iter()
-        .map(|s| {
-            if menu.is_loading {
-                // подсветка loading...
-                ListItem::new(Line::from(Span::styled(
-                    s,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::ITALIC),
-                )))
-            } else {
-                ListItem::new(Line::from(s.as_str()))
-            }
-        })
-        .collect();
-
-    let border_style = if is_active_menu {
-        Style::default().fg(Color::Green)
-    } else {
-        Style::default().fg(Color::Gray)
-    };
-
+    let border_style = menu_border_style(is_active_menu);
     let title = build_menu_title(menu);
-
-    let title_style = if is_active_menu {
-        Style::default().add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
+    let title_style = menu_title_style(is_active_menu);
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -1237,6 +1211,41 @@ fn render_single_menu(
     };
 
     f.render_stateful_widget(list, area, &mut menu.state);
+}
+
+fn build_menu_items<'a>(menu: &Menu, filtered_items: &'a [String]) -> Vec<ListItem<'a>> {
+    filtered_items
+        .iter()
+        .map(|s| {
+            if menu.is_loading {
+                // подсветка loading...
+                ListItem::new(Line::from(Span::styled(
+                    s.as_str(),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::ITALIC),
+                )))
+            } else {
+                ListItem::new(Line::from(s.as_str()))
+            }
+        })
+        .collect()
+}
+
+fn menu_border_style(is_active_menu: bool) -> Style {
+    if is_active_menu {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Gray)
+    }
+}
+
+fn menu_title_style(is_active_menu: bool) -> Style {
+    if is_active_menu {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    }
 }
 
 fn build_menu_title(menu: &Menu) -> String {
