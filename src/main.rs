@@ -525,32 +525,16 @@ struct App {
 
 impl App {
     fn new() -> Result<App> {
-        // 1. Пытаемся загрузить кэш
-        let cached_ns = load_simple_cache("namespaces.json");
-        let cached_api = load_simple_cache("apis.json");
+        let cached_ns = Self::load_cached_namespaces();
+        let cached_api = Self::load_cached_api_resources();
 
         let api_cache_exists = cached_api.is_some();
 
-        // 2. Инициализируем меню.
-        // Если кэш есть - используем Menu::new (сразу данные).
-        // Если кэша нет - используем Menu::new_loading.
-
-        let menu_ns = if let Some(items) = cached_ns {
-            Menu::new("Namespaces", items)
-        } else {
-            Menu::new_loading("Namespaces")
-        };
-
-        let menu_api = if let Some(items) = cached_api {
-            Menu::new("API Resources", items)
-        } else {
-            Menu::new_loading("API Resources")
-        };
-
+        let menu_ns = Self::create_namespace_menu(cached_ns);
+        let menu_api = Self::create_api_menu(cached_api);
         let menus = vec![menu_ns, menu_api, Menu::new("Resources", vec![])];
 
         let (tx, rx) = mpsc::unbounded_channel();
-
         let resource_cache = load_resource_cache_from_disk();
 
         let app = App {
@@ -567,10 +551,32 @@ impl App {
             context_state: ListState::default(),
         };
 
-        // 3. Запускаем фоновое обновление (даже если кэш загрузился, нужно проверить свежесть)
+        // фоновое обновление (даже если кэш есть)
         app.fetch_initial_data(api_cache_exists);
 
         Ok(app)
+    }
+
+    fn load_cached_namespaces() -> Option<Vec<String>> {
+        load_simple_cache("namespaces.json")
+    }
+
+    fn load_cached_api_resources() -> Option<Vec<String>> {
+        load_simple_cache("apis.json")
+    }
+
+    fn create_namespace_menu(cached_ns: Option<Vec<String>>) -> Menu {
+        match cached_ns {
+            Some(items) => Menu::new("Namespaces", items),
+            None => Menu::new_loading("Namespaces"),
+        }
+    }
+
+    fn create_api_menu(cached_api: Option<Vec<String>>) -> Menu {
+        match cached_api {
+            Some(items) => Menu::new("API Resources", items),
+            None => Menu::new_loading("API Resources"),
+        }
     }
 
     fn open_context_popup(&mut self) {
