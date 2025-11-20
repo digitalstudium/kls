@@ -885,55 +885,70 @@ fn handle_input<B: Backend>(
     key: KeyEvent,
     terminal: &mut Terminal<B>,
 ) -> Result<()> {
-    // 1. Если открыт popup контекстов – обрабатываем только его
     if app.show_context_popup {
         handle_context_popup_key(app, key);
         return Ok(());
     }
 
-    let menu_idx = app.selected_menu_index;
+    let previous_menu_index = app.selected_menu_index;
     let mut selection_changed = false;
     let mut force_refresh = false;
-    let mut should_stop = false;
 
-    // 2. Навигация по спискам / меню
-    if is_navigation_key(key.code) {
-        handle_navigation_keys(app, key.code, &mut selection_changed);
-    } else {
-        // 3. В зависимости от режима: фильтр или обычный режим
-        let filter_mode = {
-            let menu = app.active_menu_mut();
-            menu.filter_mode
-        };
+    let should_stop = process_main_input(
+        app,
+        key,
+        terminal,
+        &mut selection_changed,
+        &mut force_refresh,
+    )?;
 
-        if filter_mode {
-            handle_filter_mode_keys(app, key.code, &mut selection_changed);
-        } else {
-            should_stop = handle_normal_keys(
-                app,
-                key,
-                terminal,
-                &mut selection_changed,
-                &mut force_refresh,
-            )?;
-        }
-    }
-
-    // Для Ctrl+S / Ctrl+R нужно выйти раньше, как в оригинале
     if should_stop {
         return Ok(());
     }
 
-    // 4. Обновление ресурсов
-    if selection_changed && (menu_idx == 0 || menu_idx == 1) {
+    apply_input_results(app, selection_changed, force_refresh, previous_menu_index);
+
+    Ok(())
+}
+
+fn process_main_input<B: Backend>(
+    app: &mut App,
+    key: KeyEvent,
+    terminal: &mut Terminal<B>,
+    selection_changed: &mut bool,
+    force_refresh: &mut bool,
+) -> Result<bool> {
+    if is_navigation_key(key.code) {
+        handle_navigation_keys(app, key.code, selection_changed);
+        return Ok(false);
+    }
+
+    let filter_mode = {
+        let menu = app.active_menu_mut();
+        menu.filter_mode
+    };
+
+    if filter_mode {
+        handle_filter_mode_keys(app, key.code, selection_changed);
+        Ok(false)
+    } else {
+        handle_normal_keys(app, key, terminal, selection_changed, force_refresh)
+    }
+}
+
+fn apply_input_results(
+    app: &mut App,
+    selection_changed: bool,
+    force_refresh: bool,
+    previous_menu_index: usize,
+) {
+    if selection_changed && (previous_menu_index == 0 || previous_menu_index == 1) {
         app.trigger_resource_fetch(false);
     }
 
     if force_refresh {
         app.trigger_resource_fetch(false);
     }
-
-    Ok(())
 }
 
 fn handle_context_popup_key(app: &mut App, key: KeyEvent) {
