@@ -769,28 +769,47 @@ impl App {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut terminal = setup_terminal()?;
+
+    let res = run_app(&mut terminal).await;
+
+    restore_terminal(&mut terminal)?;
+
+    if let Err(err) = res {
+        eprintln!("Error: {:?}", err);
+    }
+
+    Ok(())
+}
+
+fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let terminal = Terminal::new(backend)?;
+    Ok(terminal)
+}
 
-    // App::new теперь возвращает управление мгновенно
+async fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> Result<()> {
     let app_result = App::new();
 
-    let res = match app_result {
+    match app_result {
         Ok(mut app) => {
-            // Если мы загрузились из кэша, у нас уже выбраны NS и Kind,
-            // но список ресурсов (3-я колонка) пуст. Нужно пнуть его обновление вручную.
-            if !app.menus[0].is_loading && !app.menus[1].is_loading {
-                app.trigger_resource_fetch(false);
-            }
-
-            run_loop(&mut terminal, &mut app).await
+            maybe_trigger_initial_fetch(&mut app);
+            run_loop(terminal, &mut app).await
         }
         Err(e) => Err(e),
-    };
+    }
+}
 
+fn maybe_trigger_initial_fetch(app: &mut App) {
+    if !app.menus[0].is_loading && !app.menus[1].is_loading {
+        app.trigger_resource_fetch(false);
+    }
+}
+
+fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -798,11 +817,6 @@ async fn main() -> Result<()> {
         DisableMouseCapture
     )?;
     terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        eprintln!("Error: {:?}", err);
-    }
-
     Ok(())
 }
 
