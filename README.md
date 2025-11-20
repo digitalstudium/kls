@@ -25,6 +25,7 @@
 - `Backspace` - remove letter from filter
 - `TAB`, arrow keys, `PgUp`, `PgDn`, `Home`, `End` - navigation
 - `Ctrl+r` - reload namespaces and kinds
+- `Ctrl+s` - switch to another context
 
 ![kls in action](./images/kls.gif)
 

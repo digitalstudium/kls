@@ -19,7 +19,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -47,8 +46,7 @@ const TOP_API_RESOURCES: &[&str] = &[
 const BATCAT_STYLE: &str = " --paging always --style numbers";
 
 // --- CACHE HELPERS ---
-//
-// Структура для сохранения на диск
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct DiskResourceCache {
     // Ключ: "namespace|kind"
@@ -64,6 +62,57 @@ struct DiskCacheEntry {
 const RESOURCES_CACHE_FILENAME: &str = "resources.json";
 const RESOURCES_CACHE_TTL_SECONDS: u64 = 30;
 const RESOURCES_CACHE_KEY_SEPARATOR: &str = "|";
+
+fn get_cache_path(filename: &str) -> Option<PathBuf> {
+    let proj_dirs = ProjectDirs::from("com", "kls", "kls")?;
+    let cache_dir = proj_dirs.cache_dir();
+
+    if !cache_dir.exists() {
+        fs::create_dir_all(cache_dir).ok()?;
+    }
+
+    Some(cache_dir.join(filename))
+}
+
+fn save_to_json<T: serde::Serialize>(
+    filename: &str,
+    data: &T,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = get_cache_path(filename).ok_or("Unable to resolve cache path")?;
+    let json = serde_json::to_string(data)?;
+    fs::write(path, json)?;
+    Ok(())
+}
+
+fn load_from_json<T: serde::de::DeserializeOwned>(
+    filename: &str,
+) -> Result<T, Box<dyn std::error::Error>> {
+    let path = get_cache_path(filename).ok_or("Unable to resolve cache path")?;
+    let content = fs::read_to_string(path)?;
+    let data = serde_json::from_str(&content)?;
+    Ok(data)
+}
+
+fn save_simple_cache(filename: &str, data: &[String]) {
+    let _ = save_to_json(filename, &data);
+}
+
+fn load_simple_cache(filename: &str) -> Option<Vec<String>> {
+    load_from_json(filename).ok()
+}
+
+fn save_resource_cache_to_disk(cache: &HashMap<(String, String), (Instant, Vec<String>)>) {
+    let disk_cache = convert_memory_cache_to_disk(cache);
+    // ИЗМЕНЕНИЕ: Используем универсальный метод напрямую
+    let _ = save_to_json(RESOURCES_CACHE_FILENAME, &disk_cache);
+}
+
+fn load_resource_cache_from_disk() -> HashMap<(String, String), (Instant, Vec<String>)> {
+    load_from_json::<DiskResourceCache>(RESOURCES_CACHE_FILENAME)
+        .ok()
+        .map(convert_disk_cache_to_memory)
+        .unwrap_or_default()
+}
 
 fn get_current_timestamp() -> u64 {
     SystemTime::now()
@@ -94,19 +143,6 @@ fn timestamp_to_instant(entry_timestamp: u64, current_timestamp: u64) -> Instant
 fn is_cache_entry_valid(entry_timestamp: u64, current_timestamp: u64) -> bool {
     current_timestamp >= entry_timestamp
         && (current_timestamp - entry_timestamp) < RESOURCES_CACHE_TTL_SECONDS
-}
-
-fn read_cache_file() -> Option<DiskResourceCache> {
-    let path = get_cache_path(RESOURCES_CACHE_FILENAME)?;
-    let content = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&content).ok()
-}
-
-fn write_cache_file(disk_cache: &DiskResourceCache) -> Result<(), Box<dyn std::error::Error>> {
-    let path = get_cache_path(RESOURCES_CACHE_FILENAME).ok_or("Cache path not available")?;
-    let json = serde_json::to_string(disk_cache)?;
-    fs::write(path, json)?;
-    Ok(())
 }
 
 fn convert_memory_entry_to_disk(
@@ -167,74 +203,6 @@ fn convert_disk_cache_to_memory(
         .into_iter()
         .filter_map(|(key, entry)| convert_disk_entry_to_memory(key, entry, current_timestamp))
         .collect()
-}
-
-fn save_resource_cache_to_disk(cache: &HashMap<(String, String), (Instant, Vec<String>)>) {
-    let disk_cache = convert_memory_cache_to_disk(cache);
-    let _ = write_cache_file(&disk_cache);
-}
-
-fn load_resource_cache_from_disk() -> HashMap<(String, String), (Instant, Vec<String>)> {
-    read_cache_file()
-        .map(convert_disk_cache_to_memory)
-        .unwrap_or_default()
-}
-
-fn get_project_dirs() -> Option<ProjectDirs> {
-    ProjectDirs::from("com", "kls", "kls")
-}
-
-fn get_cache_dir() -> Option<PathBuf> {
-    let proj_dirs = get_project_dirs()?;
-    Some(proj_dirs.cache_dir().to_path_buf())
-}
-
-fn ensure_dir_exists(dir: &Path) -> std::io::Result<()> {
-    if !dir.exists() {
-        fs::create_dir_all(dir)?;
-    }
-    Ok(())
-}
-
-fn get_cache_path(filename: &str) -> Option<PathBuf> {
-    let cache_dir = get_cache_dir()?;
-    let _ = ensure_dir_exists(&cache_dir);
-    Some(cache_dir.join(filename))
-}
-
-fn write_json_file(path: &Path, json: &str) -> std::io::Result<()> {
-    fs::write(path, json)
-}
-
-fn read_file_content(path: &Path) -> std::io::Result<String> {
-    fs::read_to_string(path)
-}
-
-fn save_cache(filename: &str, data: &[String]) {
-    let path = match get_cache_path(filename) {
-        Some(p) => p,
-        None => return,
-    };
-
-    let json = match serde_json::to_string(data) {
-        Ok(j) => j,
-        Err(_) => return,
-    };
-
-    let _ = write_json_file(&path, &json);
-}
-
-fn load_cache(filename: &str) -> Option<Vec<String>> {
-    let path = get_cache_path(filename)?;
-
-    if !path.exists() {
-        return None;
-    }
-
-    let content = read_file_content(&path).ok()?;
-    let data: Vec<String> = serde_json::from_str(&content).ok()?;
-
-    if data.is_empty() { None } else { Some(data) }
 }
 
 // --- KUBECTL HELPER FUNCTIONS ---
@@ -555,8 +523,8 @@ struct App {
 impl App {
     fn new() -> Result<App> {
         // 1. Пытаемся загрузить кэш
-        let cached_ns = load_cache("namespaces.json");
-        let cached_api = load_cache("apis.json");
+        let cached_ns = load_simple_cache("namespaces.json");
+        let cached_api = load_simple_cache("apis.json");
 
         let api_cache_exists = cached_api.is_some();
 
@@ -622,7 +590,7 @@ impl App {
 
             // Если данные успешно получены и не пусты, сохраняем в кэш
             if !data.is_empty() {
-                save_cache("namespaces.json", &data);
+                save_simple_cache("namespaces.json", &data);
             }
 
             let _ = tx_ns.send(AppEvent::Namespaces(data));
@@ -634,7 +602,7 @@ impl App {
             tokio::spawn(async move {
                 let data = get_api_resources_async().await.unwrap_or_default();
                 if !data.is_empty() {
-                    save_cache("apis.json", &data);
+                    save_simple_cache("apis.json", &data);
                 }
                 let _ = tx_api.send(AppEvent::ApiResources(data));
             });
