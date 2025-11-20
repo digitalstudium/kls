@@ -880,6 +880,13 @@ fn handle_resources_event(app: &mut App, items: Vec<String>, id: usize) {
     app.menus[2].set_items(items);
 }
 
+#[derive(Default)]
+struct InputOutcome {
+    selection_changed: bool,
+    force_refresh: bool,
+    should_stop: bool,
+}
+
 fn handle_input<B: Backend>(
     app: &mut App,
     key: KeyEvent,
@@ -891,22 +898,14 @@ fn handle_input<B: Backend>(
     }
 
     let previous_menu_index = app.selected_menu_index;
-    let mut selection_changed = false;
-    let mut force_refresh = false;
 
-    let should_stop = process_main_input(
-        app,
-        key,
-        terminal,
-        &mut selection_changed,
-        &mut force_refresh,
-    )?;
+    let outcome = process_main_input(app, key, terminal)?;
 
-    if should_stop {
+    if outcome.should_stop {
         return Ok(());
     }
 
-    apply_input_results(app, selection_changed, force_refresh, previous_menu_index);
+    apply_input_results(app, &outcome, previous_menu_index);
 
     Ok(())
 }
@@ -915,12 +914,12 @@ fn process_main_input<B: Backend>(
     app: &mut App,
     key: KeyEvent,
     terminal: &mut Terminal<B>,
-    selection_changed: &mut bool,
-    force_refresh: &mut bool,
-) -> Result<bool> {
+) -> Result<InputOutcome> {
+    let mut outcome = InputOutcome::default();
+
     if is_navigation_key(key.code) {
-        handle_navigation_keys(app, key.code, selection_changed);
-        return Ok(false);
+        handle_navigation_keys(app, key.code, &mut outcome.selection_changed);
+        return Ok(outcome);
     }
 
     let filter_mode = {
@@ -929,24 +928,19 @@ fn process_main_input<B: Backend>(
     };
 
     if filter_mode {
-        handle_filter_mode_keys(app, key.code, selection_changed);
-        Ok(false)
+        handle_filter_mode_keys(app, key.code, &mut outcome.selection_changed);
+        Ok(outcome)
     } else {
-        handle_normal_keys(app, key, terminal, selection_changed, force_refresh)
+        handle_normal_keys(app, key, terminal)
     }
 }
 
-fn apply_input_results(
-    app: &mut App,
-    selection_changed: bool,
-    force_refresh: bool,
-    previous_menu_index: usize,
-) {
-    if selection_changed && (previous_menu_index == 0 || previous_menu_index == 1) {
+fn apply_input_results(app: &mut App, outcome: &InputOutcome, previous_menu_index: usize) {
+    if outcome.selection_changed && (previous_menu_index == 0 || previous_menu_index == 1) {
         app.trigger_resource_fetch(false);
     }
 
-    if force_refresh {
+    if outcome.force_refresh {
         app.trigger_resource_fetch(false);
     }
 }
@@ -1062,9 +1056,9 @@ fn handle_normal_keys<B: Backend>(
     app: &mut App,
     key: KeyEvent,
     terminal: &mut Terminal<B>,
-    selection_changed: &mut bool,
-    force_refresh: &mut bool,
-) -> Result<bool> {
+) -> Result<InputOutcome> {
+    let mut outcome = InputOutcome::default();
+
     match key.code {
         KeyCode::Char('q') => {
             app.should_quit = true;
@@ -1077,17 +1071,17 @@ fn handle_normal_keys<B: Backend>(
         }
         KeyCode::Char('j') => {
             app.active_menu_mut().next();
-            *selection_changed = true;
+            outcome.selection_changed = true;
         }
         KeyCode::Char('k') => {
             app.active_menu_mut().previous();
-            *selection_changed = true;
+            outcome.selection_changed = true;
         }
         KeyCode::Esc => {
             let menu = app.active_menu_mut();
             if !menu.filter_mode && !menu.filter.is_empty() {
                 menu.exit_filter_mode();
-                *selection_changed = true;
+                outcome.selection_changed = true;
             } else {
                 app.should_quit = true;
             }
@@ -1096,8 +1090,8 @@ fn handle_normal_keys<B: Backend>(
         // --- Ctrl + Key ---
         KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
             if handle_ctrl_shortcuts(app, c, terminal)? {
-                // true = нужно немедленно выйти из handle_input (как в Ctrl+S/Ctrl+R)
-                return Ok(true);
+                outcome.should_stop = true;
+                return Ok(outcome);
             }
         }
 
@@ -1106,14 +1100,14 @@ fn handle_normal_keys<B: Backend>(
             if let Some((ns, kind, name)) = app.get_current_selection() {
                 let cmd = format!("kubectl -n {} delete {} {}", ns, kind, name);
                 execute_shell_command(terminal, &cmd)?;
-                *force_refresh = true;
+                outcome.force_refresh = true;
             }
         }
 
         _ => {}
     }
 
-    Ok(false)
+    Ok(outcome)
 }
 
 fn handle_ctrl_shortcuts<B: Backend>(
