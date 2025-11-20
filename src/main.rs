@@ -639,30 +639,37 @@ impl App {
     }
 
     fn fetch_initial_data(&self, skip_api_fetch: bool) {
-        // --- NAMESPACES ---
+        self.spawn_namespaces_fetch();
+
+        if !skip_api_fetch {
+            self.spawn_api_resources_fetch();
+        }
+    }
+
+    fn spawn_namespaces_fetch(&self) {
         let tx_ns = self.event_tx.clone();
         tokio::spawn(async move {
             let data = get_namespaces_async().await.unwrap_or_default();
 
-            // Если данные успешно получены и не пусты, сохраняем в кэш
             if !data.is_empty() {
                 save_simple_cache("namespaces.json", &data);
             }
 
             let _ = tx_ns.send(AppEvent::Namespaces(data));
         });
+    }
 
-        // --- API RESOURCES ---
-        if !skip_api_fetch {
-            let tx_api = self.event_tx.clone();
-            tokio::spawn(async move {
-                let data = get_api_resources_async().await.unwrap_or_default();
-                if !data.is_empty() {
-                    save_simple_cache("apis.json", &data);
-                }
-                let _ = tx_api.send(AppEvent::ApiResources(data));
-            });
-        }
+    fn spawn_api_resources_fetch(&self) {
+        let tx_api = self.event_tx.clone();
+        tokio::spawn(async move {
+            let data = get_api_resources_async().await.unwrap_or_default();
+
+            if !data.is_empty() {
+                save_simple_cache("apis.json", &data);
+            }
+
+            let _ = tx_api.send(AppEvent::ApiResources(data));
+        });
     }
 
     fn refresh_metadata(&mut self) {
