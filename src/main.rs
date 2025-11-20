@@ -321,13 +321,27 @@ fn switch_context_sync(context_name: &str) -> Result<()> {
 }
 // --- SYSTEM COMMAND EXECUTOR ---
 
-fn execute_shell_command<B: ratatui::backend::Backend>(
-    terminal: &mut Terminal<B>,
-    command_str: &str,
-) -> Result<()> {
+fn execute_shell_command<B: Backend>(terminal: &mut Terminal<B>, command_str: &str) -> Result<()> {
+    leave_tui_mode()?;
+    run_shell_command(command_str);
+    enter_tui_mode(terminal)?;
+    Ok(())
+}
+
+fn leave_tui_mode() -> Result<()> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+    Ok(())
+}
 
+fn enter_tui_mode<B: Backend>(terminal: &mut Terminal<B>) -> Result<()> {
+    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    enable_raw_mode()?;
+    render_clean_screen(terminal)?;
+    Ok(())
+}
+
+fn run_shell_command(command_str: &str) {
     let status = Command::new("sh").arg("-c").arg(command_str).status();
 
     if let Err(e) = status {
@@ -335,16 +349,15 @@ fn execute_shell_command<B: ratatui::backend::Backend>(
         println!("Press Enter to continue...");
         let _ = io::stdin().read_line(&mut String::new());
     }
+}
 
-    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-    enable_raw_mode()?;
+fn render_clean_screen<B: Backend>(terminal: &mut Terminal<B>) -> Result<()> {
     terminal.clear()?;
     terminal.draw(|f| {
         let size = f.area();
         let block = Block::default().style(Style::default().bg(Color::Reset));
         f.render_widget(block, size);
     })?;
-
     Ok(())
 }
 
