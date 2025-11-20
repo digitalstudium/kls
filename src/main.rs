@@ -673,20 +673,21 @@ impl App {
     }
 
     fn refresh_metadata(&mut self) {
-        self.fetch_id += 1;
+        self.advance_fetch_id();
+        self.clear_resource_cache();
+        self.reset_menus_for_metadata_refresh();
+        self.fetch_initial_data(false);
+    }
 
-        // Очищаем память
+    fn clear_resource_cache(&mut self) {
         self.resource_cache.clear();
-
-        // Очищаем диск (перезаписываем пустым кэшем или удаляем файл)
         save_resource_cache_to_disk(&self.resource_cache);
-        // Или: if let Some(p) = get_cache_path("resources.json") { let _ = fs::remove_file(p); }
+    }
 
+    fn reset_menus_for_metadata_refresh(&mut self) {
         self.menus[0].set_loading();
         self.menus[1].set_loading();
         self.menus[2].set_items(vec![]);
-
-        self.fetch_initial_data(false);
     }
 
     fn active_menu_mut(&mut self) -> &mut Menu {
