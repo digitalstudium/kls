@@ -645,47 +645,69 @@ impl App {
         }
     }
 
-    // Добавляем аргумент is_auto_refresh
     fn trigger_resource_fetch(&mut self, is_auto_refresh: bool) {
-        let ns_opt = self.menus[0].selected_item();
-        let kind_opt = self.menus[1].selected_item();
+        let (ns, kind) = match self.selected_ns_and_kind() {
+            Some(v) => v,
+            None => {
+                self.clear_resources_menu();
+                return;
+            }
+        };
 
-        if ns_opt.is_none() || kind_opt.is_none() {
-            self.menus[2].set_items(vec![]);
-            return;
-        }
-        let ns = ns_opt.unwrap();
-        let kind = kind_opt.unwrap();
+        self.advance_fetch_id();
 
-        // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
-        // Увеличиваем ID сразу же.
-        // Это делает невалидными ВСЕ запросы, которые были запущены до этой строчки.
-        self.fetch_id += 1;
-
-        // --- ЛОГИКА КЭША ---
         if !is_auto_refresh {
             let key = (ns.clone(), kind.clone());
-            if let Some((timestamp, items)) = self.resource_cache.get(&key) {
-                if timestamp.elapsed().as_secs() < 60 {
-                    // Мы уже увеличили fetch_id выше, поэтому если сейчас прилетит
-                    // ответ от старого ns1, он будет иметь ID меньше текущего и отбросится.
-                    self.menus[2].set_items(items.clone());
-                    return;
-                }
+            if let Some(items) = self.resources_cached_recently(&key) {
+                self.menus[2].set_items(items);
+                return;
             }
         }
-        // -------------------
-
-        let my_id = self.fetch_id; // Используем новый ID
 
         if !is_auto_refresh {
-            self.menus[2].set_loading();
+            self.set_resources_loading();
         }
 
+        self.abort_current_fetch();
+        self.launch_resource_fetch(ns, kind);
+    }
+
+    fn selected_ns_and_kind(&self) -> Option<(String, String)> {
+        let ns = self.menus[0].selected_item()?;
+        let kind = self.menus[1].selected_item()?;
+        Some((ns, kind))
+    }
+
+    fn clear_resources_menu(&mut self) {
+        self.menus[2].set_items(vec![]);
+    }
+
+    fn advance_fetch_id(&mut self) {
+        self.fetch_id += 1;
+    }
+
+    fn resources_cached_recently(&self, key: &(String, String)) -> Option<Vec<String>> {
+        self.resource_cache.get(key).and_then(|(timestamp, items)| {
+            if timestamp.elapsed().as_secs() < 60 {
+                Some(items.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    fn set_resources_loading(&mut self) {
+        self.menus[2].set_loading();
+    }
+
+    fn abort_current_fetch(&mut self) {
         if let Some(task) = &self.current_fetch_task {
             task.abort();
         }
+    }
 
+    fn launch_resource_fetch(&mut self, ns: String, kind: String) {
+        let fetch_id = self.fetch_id;
         let tx = self.event_tx.clone();
 
         let handle = tokio::spawn(async move {
@@ -698,11 +720,12 @@ impl App {
                 "--ignore-not-found".to_string(),
             ];
 
-            if let Ok(lines) = run_kubectl_async(args).await {
-                let _ = tx.send(AppEvent::Resources(lines, my_id));
-            } else {
-                let _ = tx.send(AppEvent::Resources(vec![], my_id));
-            }
+            let lines = match run_kubectl_async(args).await {
+                Ok(lines) => lines,
+                Err(_) => vec![],
+            };
+
+            let _ = tx.send(AppEvent::Resources(lines, fetch_id));
         });
 
         self.current_fetch_task = Some(handle);
